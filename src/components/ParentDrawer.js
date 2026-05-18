@@ -13,9 +13,10 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { useDispatch, useSelector } from 'react-redux';
+import { useDispatch } from 'react-redux';
 
-import { images } from '../assets';
+import UserAvatar from './UserAvatar';
+import { useUserProfile } from '../hooks/useUserProfile';
 import { logout } from '../store/authSlice';
 import { clearUserData, resetNavigationToLogin } from '../utils';
 
@@ -63,12 +64,9 @@ const ICON_SHADOW =
 export default function ParentDrawer({ visible, onClose, navigation }) {
   const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
-  const user = useSelector((s) => s.auth.user);
+  const { displayName, profileImageUri, roleLabel } = useUserProfile();
   const win = Dimensions.get('window');
   const drawerWidth = Math.min(360, win.width * 0.88);
-
-  const displayName = user?.name ?? 'Sarah Wilson';
-  const roleLabel = user?.role === 'admin' ? 'Admin' : user?.role === 'teacher' ? 'Staff' : 'Parent';
 
   const handleMenuPress = (item) => {
     onClose();
@@ -99,7 +97,7 @@ export default function ParentDrawer({ visible, onClose, navigation }) {
     onClose();
     requestAnimationFrame(() => {
       if (!navigation?.navigate) return;
-      navigation.navigate('Profile', { screen: 'Settings' });
+      navigation.navigate('Profile', { screen: 'PrivacySettings' });
     });
   };
 
@@ -165,7 +163,13 @@ export default function ParentDrawer({ visible, onClose, navigation }) {
               { paddingBottom: Math.max(insets.bottom, 12) + 16 },
             ]}
           >
-            <Image source={images.profile} style={styles.avatar} />
+            <UserAvatar
+              imageUri={profileImageUri}
+              size={104}
+              borderWidth={3}
+              borderColor={AVATAR_RING}
+              iconColor="#FFFFFF"
+            />
             <Text style={styles.footerName}>{displayName}</Text>
             <Text style={styles.footerRole}>{roleLabel}</Text>
             <View style={styles.footerActions}>
@@ -268,13 +272,6 @@ const styles = StyleSheet.create({
     paddingTop: 22,
     paddingHorizontal: 20,
     alignItems: 'center',
-  },
-  avatar: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
-    borderWidth: 3,
-    borderColor: AVATAR_RING,
   },
   footerName: {
     marginTop: 14,

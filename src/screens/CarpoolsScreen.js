@@ -25,6 +25,7 @@ import { images } from '../assets';
 import {
   useCarpoolRequestActionMutation,
   useGetAllCarpoolsQuery,
+  useGetMyCarpoolIncomingRequestsQuery,
   useSendCarpoolRequestMutation,
 } from '../api/eps';
 
@@ -138,21 +139,18 @@ function matchesSearch(item, query) {
   return haystack.includes(q);
 }
 
-function getCarpoolRequests(carpool) {
-  const raw = carpool?.requests;
-  if (raw == null) return [];
-  if (Array.isArray(raw)) return raw.filter(Boolean);
-  return [];
-}
-
 function mapIncomingRequest(request) {
-  const parent = request.parent ?? request.user ?? request.requester ?? {};
-  const parentName = [parent.firstName, parent.lastName].filter(Boolean).join(' ');
+  const requester =
+    request.requesterId ?? request.parent ?? request.user ?? request.requester ?? {};
+  const requesterName = [requester.firstName, requester.lastName].filter(Boolean).join(' ');
   return {
     requestId: request._id ?? request.id ?? request.requestId,
     seatsRequested: request.seatsRequested ?? request.seats ?? '—',
-    requesterName: request.name ?? parent.name ?? (parentName || 'Parent'),
-    phone: request.phone ?? parent.phone ?? '',
+    requesterName:
+      request.name ??
+      requester.name ??
+      (requesterName || requester.email || 'Parent'),
+    phone: request.phone ?? requester.phoneNumber ?? requester.phone ?? '',
     status: (request.status ?? 'pending').toLowerCase(),
   };
 }
@@ -287,7 +285,7 @@ function CarpoolCard({ item, showRequest, onRequest, isRequesting }) {
   );
 }
 
-function CarpoolRequestsCard({ carpool, actingRequestId, onAccept, onReject }) {
+function CarpoolRequestsCard({ carpool, actingRequest, onAccept, onReject }) {
   return (
     <View style={[styles.card, CARD_SHADOW]}>
       <View style={styles.cardTop}>
@@ -305,7 +303,11 @@ function CarpoolRequestsCard({ carpool, actingRequestId, onAccept, onReject }) {
 
       {carpool.requests.map((req) => {
         const isPending = req.status === 'pending';
-        const isActing = actingRequestId === req.requestId;
+        const isBusy = Boolean(actingRequest);
+        const isThisRequest =
+          actingRequest?.requestId === req.requestId;
+        const isRejecting = isThisRequest && actingRequest?.action === 'rejected';
+        const isAccepting = isThisRequest && actingRequest?.action === 'accepted';
 
         return (
           <View key={req.requestId} style={styles.incomingRequestBlock}>
@@ -331,24 +333,24 @@ function CarpoolRequestsCard({ carpool, actingRequestId, onAccept, onReject }) {
             {isPending ? (
               <View style={styles.requestActionRow}>
                 <TouchableOpacity
-                  style={[styles.rejectBtn, isActing && styles.requestBtnDisabled]}
+                  style={[styles.rejectBtn, isBusy && styles.requestBtnDisabled]}
                   activeOpacity={0.85}
                   onPress={() => onReject(req.requestId)}
-                  disabled={Boolean(actingRequestId)}
+                  disabled={isBusy}
                 >
-                  {isActing ? (
+                  {isRejecting ? (
                     <ActivityIndicator color={RED_REJECT} size="small" />
                   ) : (
                     <Text style={styles.rejectBtnText}>Reject</Text>
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.acceptBtn, isActing && styles.requestBtnDisabled]}
+                  style={[styles.acceptBtn, isBusy && styles.requestBtnDisabled]}
                   activeOpacity={0.85}
                   onPress={() => onAccept(req.requestId)}
-                  disabled={Boolean(actingRequestId)}
+                  disabled={isBusy}
                 >
-                  {isActing ? (
+                  {isAccepting ? (
                     <ActivityIndicator color="#FFFFFF" size="small" />
                   ) : (
                     <Text style={styles.acceptBtnText}>Accept</Text>
@@ -421,7 +423,7 @@ export default function CarpoolsScreen() {
   const [requestTarget, setRequestTarget] = useState(null);
   const [seatsRequested, setSeatsRequested] = useState('1');
   const [requestingCarpoolId, setRequestingCarpoolId] = useState(null);
-  const [actingRequestId, setActingRequestId] = useState(null);
+  const [actingRequest, setActingRequest] = useState(null);
 
   const isAvailableTab = tab === 'available';
   const isMyTab = tab === 'my';
@@ -430,23 +432,46 @@ export default function CarpoolsScreen() {
 
   const {
     data: carpools = [],
-    isFetching,
-    isError,
-    refetch,
+    isFetching: isCarpoolsFetching,
+    isError: isCarpoolsError,
+    refetch: refetchCarpools,
   } = useGetAllCarpoolsQuery(undefined, {
-    skip: !isCarpoolListTab,
+    skip: isRequestsTab,
     refetchOnMountOrArgChange: true,
   });
+
+  const {
+    data: incomingRequestEntries = [],
+    isFetching: isRequestsFetching,
+    isError: isRequestsError,
+    refetch: refetchIncomingRequests,
+  } = useGetMyCarpoolIncomingRequestsQuery(parentId, {
+    skip: !isRequestsTab || !parentId,
+    refetchOnMountOrArgChange: true,
+  });
+
+  const isFetching = isRequestsTab ? isRequestsFetching : isCarpoolsFetching;
+  const isError = isRequestsTab ? isRequestsError : isCarpoolsError;
+
+  const refetch = useCallback(() => {
+    if (isRequestsTab) {
+      refetchIncomingRequests();
+    } else {
+      refetchCarpools();
+    }
+  }, [isRequestsTab, refetchIncomingRequests, refetchCarpools]);
 
   const [sendCarpoolRequest, { isLoading: isSendingRequest }] = useSendCarpoolRequestMutation();
   const [carpoolRequestAction] = useCarpoolRequestActionMutation();
 
   useFocusEffect(
     useCallback(() => {
-      if (isCarpoolListTab) {
-        refetch();
+      if (isRequestsTab) {
+        refetchIncomingRequests();
+      } else if (isCarpoolListTab) {
+        refetchCarpools();
       }
-    }, [refetch, isCarpoolListTab]),
+    }, [isRequestsTab, isCarpoolListTab, refetchIncomingRequests, refetchCarpools]),
   );
 
   const cards = useMemo(() => carpools.map(mapCarpoolToCard), [carpools]);
@@ -469,32 +494,41 @@ export default function CarpoolsScreen() {
   const requestCarpoolCards = useMemo(() => {
     if (!isRequestsTab || !parentId) return [];
 
-    return carpools
-      .filter((c) => String(c.creatorId) === String(parentId))
-      .map((c) => {
-        const card = mapCarpoolToCard(c);
-        const requests = getCarpoolRequests(c).map(mapIncomingRequest).filter((r) => r.requestId);
-        if (requests.length === 0) return null;
-        return { ...card, requests };
+    return incomingRequestEntries
+      .map(({ carpool, requests }) => {
+        const card = mapCarpoolToCard(carpool);
+        const mappedRequests = requests.map(mapIncomingRequest).filter((r) => r.requestId);
+        return { ...card, requests: mappedRequests };
       })
-      .filter(Boolean)
+      .filter((c) => c.requests.length > 0)
       .filter((c) => matchesRequestCarpoolCard(c, search));
-  }, [carpools, isRequestsTab, parentId, search]);
+  }, [incomingRequestEntries, isRequestsTab, parentId, search]);
 
   const handleIncomingRequestAction = async (requestId, action) => {
-    setActingRequestId(requestId);
-    try {
-      await carpoolRequestAction({ requestId, action }).unwrap();
-      Alert.alert(
-        'Updated',
-        action === 'accepted' ? 'Request accepted.' : 'Request rejected.',
-      );
-      refetch();
-    } catch (err) {
-      Alert.alert('Error', getApiErrorMessage(err, 'Could not update request.'));
-    } finally {
-      setActingRequestId(null);
+    if (!requestId) {
+      Alert.alert('Error', 'Missing request id.');
+      return;
     }
+
+    setActingRequest({ requestId, action });
+    try {
+      const result = await carpoolRequestAction({
+        requestId: String(requestId),
+        action,
+      });
+
+      if (!result.error) {
+        Alert.alert(
+          'Updated',
+          action === 'accepted' ? 'Request accepted.' : 'Request rejected.',
+        );
+      }
+    } finally {
+      setActingRequest(null);
+    }
+
+    refetchIncomingRequests();
+    refetchCarpools();
   };
 
   const openRequestModal = (item) => {
@@ -622,7 +656,11 @@ export default function CarpoolsScreen() {
         </View>
 
         {isRequestsTab ? (
-          isFetching && carpools.length === 0 ? (
+          !parentId ? (
+            <View style={styles.placeholderBlock}>
+              <Text style={styles.placeholderText}>Sign in to view carpool requests.</Text>
+            </View>
+          ) : isFetching && requestCarpoolCards.length === 0 ? (
             <View style={styles.placeholderBlock}>
               <ActivityIndicator size="large" color={PRIMARY} />
             </View>
@@ -636,7 +674,7 @@ export default function CarpoolsScreen() {
           ) : requestCarpoolCards.length === 0 ? (
             <View style={styles.placeholderBlock}>
               <Text style={styles.placeholderText}>
-                {search.trim() ? 'No requests match your search.' : 'No pending requests.'}
+                {search.trim() ? 'No requests match your search.' : 'No carpool requests yet.'}
               </Text>
             </View>
           ) : (
@@ -645,14 +683,14 @@ export default function CarpoolsScreen() {
                 <CarpoolRequestsCard
                   key={c.id}
                   carpool={c}
-                  actingRequestId={actingRequestId}
+                  actingRequest={actingRequest}
                   onAccept={(requestId) => handleIncomingRequestAction(requestId, 'accepted')}
                   onReject={(requestId) => handleIncomingRequestAction(requestId, 'rejected')}
                 />
               ))}
             </View>
           )
-        ) : isFetching && cards.length === 0 ? (
+        ) : isFetching && filteredCards.length === 0 ? (
           <View style={styles.placeholderBlock}>
             <ActivityIndicator size="large" color={PRIMARY} />
           </View>

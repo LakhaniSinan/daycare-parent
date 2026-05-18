@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -10,11 +11,14 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { width, height, totalSize } from 'react-native-dimension';
 
 import ParentDrawer from '../components/ParentDrawer';
 import { images } from '../assets';
+import { useGetTeacherCalendarQuery } from '../api/eps';
 
 const PRIMARY = '#0084FF';
 const WEEKDAY_HEADER = '#BDBDBD';
@@ -127,6 +131,53 @@ function formatSelectedHeading(d) {
   return `${w} ${m} ${dayOrdinal(d.getDate())}`;
 }
 
+function toDateKey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function formatTimeDisplay(time24) {
+  if (!time24 || typeof time24 !== 'string') return '';
+  const parts = time24.trim().split(':');
+  const h = Number(parts[0]);
+  const m = Number(parts[1] ?? 0);
+  if (Number.isNaN(h)) return time24;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function formatTimeRange(startTime, endTime) {
+  const start = formatTimeDisplay(startTime);
+  const end = formatTimeDisplay(endTime);
+  if (start && end) return `${start} – ${end}`;
+  return start || end || '';
+}
+
+function ClassSessionCard({ session }) {
+  const timeLabel = formatTimeRange(session.startTime, session.endTime);
+
+  return (
+    <View style={[styles.classCard, CARD_SHADOW]}>
+      <View style={styles.classCardIconWrap}>
+        <MaterialCommunityIcons name="presentation-play" size={24} color={PRIMARY} />
+      </View>
+      <View style={styles.classCardBody}>
+        <Text style={styles.classCardTitle}>{session.className}</Text>
+        {session.classType ? (
+          <Text style={styles.classCardMeta}>{session.classType}</Text>
+        ) : null}
+        {timeLabel ? <Text style={styles.classCardTime}>{timeLabel}</Text> : null}
+        {session.teacherName ? (
+          <Text style={styles.classCardTeacher}>{session.teacherName}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 export default function CalendarScreen({ navigation }) {
   const today = useMemo(() => startOfDay(new Date()), []);
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -137,6 +188,38 @@ export default function CalendarScreen({ navigation }) {
   const weeks = useMemo(
     () => buildWeeks(viewYear, viewMonth),
     [viewYear, viewMonth],
+  );
+
+  const {
+    data: calendarByDate = {},
+    isLoading,
+    isFetching,
+    isError,
+    refetch,
+  } = useGetTeacherCalendarQuery(
+    { month: viewMonth + 1, year: viewYear },
+    { refetchOnMountOrArgChange: true },
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
+
+  const datesWithClasses = useMemo(
+    () =>
+      new Set(
+        Object.keys(calendarByDate).filter((key) => calendarByDate[key]?.length > 0),
+      ),
+    [calendarByDate],
+  );
+
+  const selectedDateKey = useMemo(() => toDateKey(selectedDate), [selectedDate]);
+
+  const selectedClasses = useMemo(
+    () => calendarByDate[selectedDateKey] ?? [],
+    [calendarByDate, selectedDateKey],
   );
 
   const goBack = () => {
@@ -226,6 +309,7 @@ export default function CalendarScreen({ navigation }) {
               const inMonth = isInMonth(cellDate, viewYear, viewMonth);
               const isWeekend = ci >= 5;
               const selected = sameDay(cellDate, selectedDate);
+              const hasClass = datesWithClasses.has(toDateKey(cellDate));
 
               let numColor;
               if (selected) {
@@ -260,6 +344,14 @@ export default function CalendarScreen({ navigation }) {
                     >
                       {cellDate.getDate()}
                     </Text>
+                    {hasClass ? (
+                      <View
+                        style={[
+                          styles.classDot,
+                          selected ? styles.classDotSelected : null,
+                        ]}
+                      />
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               );
@@ -287,20 +379,43 @@ export default function CalendarScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
-        <View style={[styles.eventCard, CARD_SHADOW]}>
-          <View style={styles.eventCardLeft}>
-            <Text style={styles.eventHeading}>
-              {formatSelectedHeading(selectedDate)}
-            </Text>
-            <Text style={styles.eventSub}>No Events Added</Text>
-          </View>
-          <TouchableOpacity
-            style={styles.addFab}
-            activeOpacity={0.85}
-            onPress={() => {}}
-          >
-            <Ionicons name="add" size={28} color="#FFFFFF" />
-          </TouchableOpacity>
+        <View style={styles.daySection}>
+          <Text style={styles.daySectionHeading}>
+            {formatSelectedHeading(selectedDate)}
+          </Text>
+
+          {isLoading ? (
+            <View style={styles.daySectionLoading}>
+              <ActivityIndicator size="large" color={PRIMARY} />
+            </View>
+          ) : isError ? (
+            <View style={styles.daySectionEmpty}>
+              <Text style={styles.daySectionEmptyText}>Could not load calendar.</Text>
+              <TouchableOpacity
+                onPress={refetch}
+                style={styles.retryBtn}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.retryBtnText}>Try again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : selectedClasses.length === 0 ? (
+            <View style={[styles.daySectionEmpty, styles.noClassCard, CARD_SHADOW]}>
+              <Text style={styles.daySectionEmptyText}>No classes scheduled</Text>
+            </View>
+          ) : (
+            selectedClasses.map((session) => (
+              <ClassSessionCard key={session.id} session={session} />
+            ))
+          )}
+
+          {isFetching && !isLoading ? (
+            <ActivityIndicator
+              style={styles.inlineRefresh}
+              size="small"
+              color={PRIMARY}
+            />
+          ) : null}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -406,6 +521,16 @@ const styles = StyleSheet.create({
   cellTextSelected: {
     fontWeight: '700',
   },
+  classDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: PRIMARY,
+    marginTop: 3,
+  },
+  classDotSelected: {
+    backgroundColor: PRIMARY,
+  },
   monthNav: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -425,36 +550,90 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: BLACK,
   },
-  eventCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    paddingVertical: 18,
-    paddingHorizontal: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#F0F0F0',
+  daySection: {
+    marginTop: 4,
   },
-  eventCardLeft: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  eventHeading: {
+  daySectionHeading: {
     fontSize: totalSize(1.35),
     fontWeight: '700',
     color: BLACK,
+    marginBottom: 14,
   },
-  eventSub: {
-    marginTop: 6,
+  daySectionLoading: {
+    paddingVertical: 28,
+    alignItems: 'center',
+  },
+  daySectionEmpty: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  daySectionEmptyText: {
     fontSize: totalSize(1.1),
     color: MUTED,
+    textAlign: 'center',
   },
-  addFab: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  noClassCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#F0F0F0',
+    width: '100%',
+  },
+  classCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#F0F0F0',
+  },
+  classCardIconWrap: {
+    marginTop: 2,
+  },
+  classCardBody: {
+    flex: 1,
+    marginLeft: 12,
+    minWidth: 0,
+  },
+  classCardTitle: {
+    fontSize: totalSize(1.3),
+    fontWeight: '700',
+    color: BLACK,
+  },
+  classCardMeta: {
+    marginTop: 4,
+    fontSize: totalSize(1.05),
+    color: MUTED,
+  },
+  classCardTime: {
+    marginTop: 6,
+    fontSize: totalSize(1.15),
+    fontWeight: '600',
+    color: PRIMARY,
+  },
+  classCardTeacher: {
+    marginTop: 4,
+    fontSize: totalSize(1.05),
+    color: MUTED,
+  },
+  retryBtn: {
+    marginTop: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 999,
     backgroundColor: PRIMARY,
-    alignItems: 'center',
-    justifyContent: 'center',
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: totalSize(1.1),
+    fontWeight: '600',
+  },
+  inlineRefresh: {
+    marginTop: 8,
   },
 });

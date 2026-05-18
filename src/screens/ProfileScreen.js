@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -13,11 +14,13 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { width } from 'react-native-dimension';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import { useDispatch, useSelector } from 'react-redux';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useDispatch } from 'react-redux';
 
 import ParentDrawer from '../components/ParentDrawer';
+import UserAvatar from '../components/UserAvatar';
 import { images } from '../assets';
+import { useUserProfile } from '../hooks/useUserProfile';
 import { logout } from '../store/authSlice';
 import { clearUserData, resetNavigationToLogin } from '../utils';
 
@@ -66,8 +69,22 @@ const ICON_ORB_SHADOW =
 const ProfileScreen = () => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const user = useSelector((s) => s.auth.user);
+  const {
+    displayName,
+    profileImageUri,
+    roleLabel,
+    email,
+    phoneNumber,
+    isLoading,
+    refetch,
+  } = useUserProfile();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
 
   const statsData = [
     { id: 1, value: '3', label: 'Years Of Director' },
@@ -81,12 +98,6 @@ const ProfileScreen = () => {
       title: 'Personal Information',
       icon: { name: 'person', color: '#1E88E5' },
       bg: '#1E88E5',
-    },
-    {
-      id: 2,
-      title: 'Notification Setting',
-      icon: { name: 'notifications', color: '#19B600' },
-      bg: '#22C55E',
     },
     {
       id: 3,
@@ -137,9 +148,6 @@ const ProfileScreen = () => {
     resetNavigationToLogin(navigation);
   };
 
-  const roleLabel =
-    user?.role === 'admin' ? 'Director' : user?.role === 'teacher' ? 'Staff' : 'Parent';
-
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor={HEADER_BLUE} />
@@ -168,20 +176,34 @@ const ProfileScreen = () => {
         <ScrollView showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
             <View style={styles.profileRow}>
-              <Image source={images.profile} style={styles.avatar} />
-              <View>
-                <Text style={styles.name}>{user?.name ?? 'Angelina Julia'}</Text>
+              {isLoading ? (
+                <View style={styles.avatarLoading}>
+                  <ActivityIndicator size="large" color="#FFFFFF" />
+                </View>
+              ) : (
+                <UserAvatar
+                  imageUri={profileImageUri}
+                  size={120}
+                  borderWidth={7}
+                  borderColor="#FFFFFF"
+                  iconColor="rgba(255,255,255,0.9)"
+                  placeholderStyle={styles.avatarPlaceholder}
+                />
+              )}
+              <View style={styles.profileTextBlock}>
+                <Text style={styles.name}>{displayName}</Text>
                 <Text style={styles.role}>{roleLabel}</Text>
-                <Text style={styles.company}>Downtown Learning Centre</Text>
+                {/* {email ? <Text style={styles.meta}>{email}</Text> : null} */}
+                {/* {phoneNumber ? <Text style={styles.meta}>{phoneNumber}</Text> : null} */}
               </View>
             </View>
           </View>
 
-          <View style={styles.statsContainer}>
+          {/* <View style={styles.statsContainer}>
             {statsData.map((item) => (
               <StatCard key={item.id} value={item.value} label={item.label} />
             ))}
-          </View>
+          </View> */}
 
           <View style={styles.menuContainer}>
             {menuData.map((item) => (
@@ -193,9 +215,13 @@ const ProfileScreen = () => {
                 onPress={
                   item.id === 5
                     ? handleLogout
-                    : item.id === 3
-                      ? () => navigation.navigate('Settings')
-                      : () => {}
+                    : item.id === 1
+                      ? () => navigation.navigate('EditProfile')
+                      : item.id === 3
+                        ? () => navigation.navigate('PrivacySettings')
+                        : item.id === 4
+                          ? () => navigation.navigate('HelpSupport')
+                          : () => {}
                 }
               />
             ))}
@@ -248,12 +274,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 15,
   },
-  avatar: {
+  avatarLoading: {
     width: 120,
     height: 120,
     borderRadius: 60,
     borderWidth: 7,
     borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarPlaceholder: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  profileTextBlock: {
+    flex: 1,
+    minWidth: 0,
   },
   name: {
     color: '#fff',
@@ -264,7 +299,7 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.88)',
     fontSize: 14,
   },
-  company: {
+  meta: {
     color: 'rgba(255,255,255,0.75)',
     fontSize: 12,
     marginTop: 2,

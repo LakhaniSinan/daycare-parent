@@ -16,7 +16,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import ParentDrawer from '../components/ParentDrawer';
 import { images } from '../assets';
-import { useGetClassroomsQuery } from '../api/eps';
+import { useGetClassroomsQuery, useGetParentDashboardQuery } from '../api/eps';
 
 const PRIMARY = '#1E88E5';
 const PAGE_BG = '#F4F6F8';
@@ -140,18 +140,29 @@ export default function DashboardScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const {
+    data: dashboard = { totalChildren: 0, totalClasses: 0 },
+    isLoading: isDashboardLoading,
+    refetch: refetchDashboard,
+  } = useGetParentDashboardQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
+
+  const {
     data: classrooms = [],
-    isLoading,
+    isLoading: isClassroomsLoading,
     isError,
-    refetch,
+    refetch: refetchClassrooms,
   } = useGetClassroomsQuery(undefined, {
     refetchOnMountOrArgChange: true,
   });
 
+  const isLoading = isDashboardLoading || isClassroomsLoading;
+
   useFocusEffect(
     useCallback(() => {
-      refetch();
-    }, [refetch]),
+      refetchDashboard();
+      refetchClassrooms();
+    }, [refetchDashboard, refetchClassrooms]),
   );
 
   const classRows = useMemo(
@@ -159,14 +170,10 @@ export default function DashboardScreen() {
     [classrooms],
   );
 
-  const newPhotoCount = useMemo(
-    () =>
-      classrooms.reduce(
-        (sum, classroom) => sum + (Array.isArray(classroom.photoGallery) ? classroom.photoGallery.length : 0),
-        0,
-      ),
-    [classrooms],
-  );
+  const refetch = useCallback(() => {
+    refetchDashboard();
+    refetchClassrooms();
+  }, [refetchDashboard, refetchClassrooms]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -215,35 +222,19 @@ export default function DashboardScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <View style={styles.statGrid}>
-              <View style={styles.statRow}>
-                <StatCard
-                  icon="star"
-                  iconColor={PRIMARY}
-                  value="6"
-                  label="Activities"
-                />
-                <StatCard
-                  icon="message-text"
-                  iconColor="#22C55E"
-                  value="2"
-                  label="Messages"
-                />
-              </View>
-              <View style={styles.statRow}>
-                <StatCard
-                  icon="image-multiple"
-                  iconColor="#8B5CF6"
-                  value={String(newPhotoCount)}
-                  label="New Photos"
-                />
-                <StatCard
-                  icon="calendar-month"
-                  iconColor="#EF4444"
-                  value="3"
-                  label="Upcoming Events"
-                />
-              </View>
+            <View style={styles.statRow}>
+              <StatCard
+                icon="account-child"
+                iconColor={PRIMARY}
+                value={String(dashboard.totalChildren)}
+                label="Children"
+              />
+              <StatCard
+                icon="google-classroom"
+                iconColor="#8B5CF6"
+                value={String(dashboard.totalClasses)}
+                label="Classes"
+              />
             </View>
 
             <SectionHeader title="Current Classes" onViewAll={() => {}} />
@@ -361,13 +352,10 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 28,
   },
-  statGrid: {
-    gap: 12,
-    marginBottom: 24,
-  },
   statRow: {
     flexDirection: 'row',
     gap: 12,
+    marginBottom: 30,
   },
   statCard: {
     flex: 1,
