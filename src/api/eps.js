@@ -1,17 +1,21 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
-/** API origin — same machine: use your machine LAN IP for physical device / emulator. */
-export const BASE_URL = 'https://daycare-backend-bdecee4507c1.herokuapp.com/api';
+// export const BASE_URL = 'https://daycare-backend-bdecee4507c1.herokuapp.com/api';
+export const BASE_URL = 'http://192.168.100.37:3000/api';
 
-/** Path constants — combined with BASE_URL (includes /api/). */
 export const API = {
   AUTH_LOGIN: '/auth/login',
   CLASS_TYPES: 'classrooms/class-types',
+  CLASSROOMS: 'classrooms',
   STUDENTS_CREATE: 'students/create',
   CARPOOL_GET_ALL: 'carpool/get-all',
   CARPOOL_CREATE: 'carpool/create-carpool',
   CARPOOL_SEND_REQUEST: 'carpool/send-request',
   CARPOOL_REQUEST_ACTION: 'carpool/request/action',
+  PARENT_MY_CHILDREN: 'parent/my-children',
+  DONATION_OPEN: 'donation/open',
+  DONATION_CREATE_PAYMENT_INTENT: 'donation/create-payment-intent',
+  DONATION_DONATE: 'donation/donate',
 };
 
 export const baseApi = createApi({
@@ -29,7 +33,7 @@ export const baseApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Auth', 'Users', 'Classrooms', 'Students', 'Carpools'],
+  tagTypes: ['Auth', 'Users', 'Classrooms', 'Students', 'Carpools', 'Donations'],
   endpoints: (build) => ({
     loginParent: build.mutation({
       query: ({ email, password }) => ({
@@ -46,6 +50,14 @@ export const baseApi = createApi({
       },
       providesTags: ['Classrooms'],
     }),
+    getClassrooms: build.query({
+      query: () => API.CLASSROOMS,
+      transformResponse: (response) => {
+        const raw = response?.data;
+        return Array.isArray(raw) ? raw : [];
+      },
+      providesTags: ['Classrooms'],
+    }),
     createStudent: build.mutation({
       query: (body) => ({
         url: API.STUDENTS_CREATE,
@@ -53,6 +65,14 @@ export const baseApi = createApi({
         body,
       }),
       invalidatesTags: ['Students'],
+    }),
+    getMyChildren: build.query({
+      query: () => API.PARENT_MY_CHILDREN,
+      transformResponse: (response) => {
+        const raw = response?.data;
+        return Array.isArray(raw) ? raw : [];
+      },
+      providesTags: ['Students'],
     }),
     getAllCarpools: build.query({
       query: () => API.CARPOOL_GET_ALL,
@@ -86,15 +106,47 @@ export const baseApi = createApi({
       }),
       invalidatesTags: ['Carpools'],
     }),
+    getOpenDonations: build.query({
+      query: () => API.DONATION_OPEN,
+      transformResponse: (response) => {
+        const raw = response?.donations ?? response?.data?.donations ?? response?.data;
+        return Array.isArray(raw) ? raw : [];
+      },
+      providesTags: ['Donations'],
+    }),
+    createDonationPaymentIntent: build.mutation({
+      query: (body) => ({
+        url: API.DONATION_CREATE_PAYMENT_INTENT,
+        method: 'POST',
+        body,
+      }),
+    }),
+    recordDonation: build.mutation({
+      // amount: dollars (e.g. 25), not cents — must match create-payment-intent
+      query: ({ donationId, amount, paymentMethodId }) => ({
+        url: `${API.DONATION_DONATE}/${donationId}`,
+        method: 'POST',
+        body: {
+          amount: Number(amount),
+          paymentMethodId: String(paymentMethodId ?? ''),
+        },
+      }),
+      invalidatesTags: ['Donations'],
+    }),
   }),
 });
 
 export const {
   useLoginParentMutation,
   useGetClassTypesQuery,
+  useGetClassroomsQuery,
   useCreateStudentMutation,
+  useGetMyChildrenQuery,
   useGetAllCarpoolsQuery,
   useCreateCarpoolMutation,
   useSendCarpoolRequestMutation,
   useCarpoolRequestActionMutation,
+  useGetOpenDonationsQuery,
+  useCreateDonationPaymentIntentMutation,
+  useRecordDonationMutation,
 } = baseApi;

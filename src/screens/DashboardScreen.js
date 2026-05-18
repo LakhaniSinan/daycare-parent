@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Platform,
   Pressable,
@@ -9,18 +10,20 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import ParentDrawer from '../components/ParentDrawer';
 import { images } from '../assets';
+import { useGetClassroomsQuery } from '../api/eps';
 
 const PRIMARY = '#1E88E5';
 const PAGE_BG = '#F4F6F8';
 const TEXT_DARK = '#111827';
 const TEXT_GREY = '#6B7280';
 const INFANT_PINK = '#FF8A9B';
+const CLASS_ROW_COLORS = [INFANT_PINK, PRIMARY, '#8B5CF6', '#22C55E', '#F59E0B'];
 const CARD_SHADOW = Platform.select({
   ios: {
     shadowColor: '#000',
@@ -59,6 +62,19 @@ function StatCard({ icon, iconColor, value, label }) {
       </View>
     </View>
   );
+}
+
+function mapClassroomToRow(classroom, index) {
+  const enrolled = Array.isArray(classroom.students) ? classroom.students.length : 0;
+  const maxCapacity = classroom.capacity ?? 0;
+
+  return {
+    id: classroom._id,
+    title: classroom.className?.trim() || 'Class',
+    subtitle: classroom.classTypeId?.name?.trim() || '',
+    capacity: `${enrolled}/${maxCapacity}`,
+    backgroundColor: CLASS_ROW_COLORS[index % CLASS_ROW_COLORS.length],
+  };
 }
 
 function ColoredClassRow({
@@ -123,6 +139,35 @@ export default function DashboardScreen() {
   const navigation = useNavigation();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  const {
+    data: classrooms = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useGetClassroomsQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
+
+  const classRows = useMemo(
+    () => classrooms.map((classroom, index) => mapClassroomToRow(classroom, index)),
+    [classrooms],
+  );
+
+  const newPhotoCount = useMemo(
+    () =>
+      classrooms.reduce(
+        (sum, classroom) => sum + (Array.isArray(classroom.photoGallery) ? classroom.photoGallery.length : 0),
+        0,
+      ),
+    [classrooms],
+  );
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <ParentDrawer
@@ -130,7 +175,7 @@ export default function DashboardScreen() {
         onClose={() => setDrawerOpen(false)}
         navigation={navigation}
       />
-      <View style={styles.screen}>
+      <View style={[styles.screen, isLoading && styles.screenLoading]}>
         <View style={styles.headerBlue}>
         <View style={styles.headerTopRow}>
           <Pressable
@@ -160,64 +205,78 @@ export default function DashboardScreen() {
         </View>
         </View>
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-        <View style={styles.statGrid}>
-          <View style={styles.statRow}>
-            <StatCard
-              icon="star"
-              iconColor={PRIMARY}
-              value="6"
-              label="Activities"
-            />
-            <StatCard
-              icon="message-text"
-              iconColor="#22C55E"
-              value="2"
-              label="Messages"
-            />
+        {isLoading ? (
+          <View style={styles.loadingBlank}>
+            <ActivityIndicator size="large" color={PRIMARY} />
           </View>
-          <View style={styles.statRow}>
-            <StatCard
-              icon="image-multiple"
-              iconColor="#8B5CF6"
-              value="5"
-              label="New Photos"
-            />
-            <StatCard
-              icon="calendar-month"
-              iconColor="#EF4444"
-              value="3"
-              label="Upcoming Events"
-            />
-          </View>
-        </View>
+        ) : (
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.statGrid}>
+              <View style={styles.statRow}>
+                <StatCard
+                  icon="star"
+                  iconColor={PRIMARY}
+                  value="6"
+                  label="Activities"
+                />
+                <StatCard
+                  icon="message-text"
+                  iconColor="#22C55E"
+                  value="2"
+                  label="Messages"
+                />
+              </View>
+              <View style={styles.statRow}>
+                <StatCard
+                  icon="image-multiple"
+                  iconColor="#8B5CF6"
+                  value={String(newPhotoCount)}
+                  label="New Photos"
+                />
+                <StatCard
+                  icon="calendar-month"
+                  iconColor="#EF4444"
+                  value="3"
+                  label="Upcoming Events"
+                />
+              </View>
+            </View>
 
-        <SectionHeader title="Current Classes" onViewAll={() => {}} />
+            <SectionHeader title="Current Classes" onViewAll={() => {}} />
 
-        <ColoredClassRow
-          backgroundColor={INFANT_PINK}
-          title="Infant Care"
-          subtitle="6 Weeks - 12 Months"
-          capacity="6/8"
-        />
-        <ColoredClassRow
-          backgroundColor={PRIMARY}
-          title="Toddler Classes"
-          subtitle="12 Months - 2 Years"
-          capacity="10/12"
-        />
+            {isError ? (
+              <View style={styles.classesEmpty}>
+                <Text style={styles.classesEmptyText}>Could not load classes.</Text>
+                <Pressable
+                  onPress={refetch}
+                  style={({ pressed }) => [styles.retryBtn, pressed && styles.pressed]}
+                >
+                  <Text style={styles.retryBtnText}>Try again</Text>
+                </Pressable>
+              </View>
+            ) : classRows.length === 0 ? (
+              <View style={styles.classesEmpty}>
+                <Text style={styles.classesEmptyText}>No classes available.</Text>
+              </View>
+            ) : (
+              classRows.map((row) => (
+                <ColoredClassRow
+                  key={row.id}
+                  backgroundColor={row.backgroundColor}
+                  title={row.title}
+                  subtitle={row.subtitle}
+                  capacity={row.capacity}
+                />
+              ))
+            )}
 
-        <View style={styles.sectionSpacer} />
-
-        {/* <SectionHeader title="Today's Class" onViewAll={() => {}} /> */}
-
-        {/* <TodayClassCard name="Class 1" time="8:30 AM" onPress={() => {}} /> */}
-        {/* <TodayClassCard name="Class 2" time="10:00 AM" onPress={() => {}} /> */}
-      </ScrollView>
+            <View style={styles.sectionSpacer} />
+          </ScrollView>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -233,6 +292,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: PAGE_BG,
+  },
+  screenLoading: {
+    backgroundColor: '#FFFFFF',
   },
   headerBlue: {
     backgroundColor: PRIMARY,
@@ -284,6 +346,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     color: 'rgba(255,255,255,0.92)',
+  },
+  loadingBlank: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scroll: {
     flex: 1,
@@ -400,6 +468,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: TEXT_DARK,
+  },
+  classesEmpty: {
+    paddingVertical: 28,
+    alignItems: 'center',
+  },
+  classesEmptyText: {
+    fontSize: 15,
+    color: TEXT_GREY,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: PRIMARY,
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   sectionSpacer: {
     height: 8,

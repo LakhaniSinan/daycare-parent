@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Platform,
   Pressable,
@@ -9,15 +10,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import ParentDrawer from '../components/ParentDrawer';
 import { images } from '../assets';
+import { useGetMyChildrenQuery } from '../api/eps';
 
-const GREEN = '#00C82D';
 const BLUE = '#3385FF';
-const CORAL = '#FF7F8E';
+const NAME_COLORS = ['#FF7F8E', '#3385FF', '#00C82D', '#8B5CF6', '#F59E0B'];
 const TEXT_DARK = '#111827';
 const TEXT_GREY = '#6B7280';
 const TEXT_MUTED = '#9CA3AF';
@@ -34,30 +35,27 @@ const CARD_SHADOW = Platform.select({
   default: {},
 });
 
-const MOCK_CHILDREN = [
-  {
-    id: '1',
-    name: 'Emma Wilson',
-    nameColor: CORAL,
-    age: 4,
-    room: 'Sunflower Room',
-    latestLabel: 'Completed Art Project',
-    latestTime: '2:30 PM',
-    avatar: images.child,
-    expandedDefault: true,
-  },
-  {
-    id: '2',
-    name: 'Liam Wilson',
-    nameColor: BLUE,
-    age: 2,
-    room: 'Butterfly Room',
-    latestLabel: 'Lunch Time',
-    latestTime: '12:30 PM',
-    avatar: images.pic,
-    expandedDefault: false,
-  },
-];
+function hasValidImageUrl(image) {
+  if (!image || typeof image !== 'string') return false;
+  const trimmed = image.trim();
+  if (!trimmed || trimmed === 'someimage') return false;
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+}
+
+function mapChildToCard(child, index) {
+  const firstName = child.firstName?.trim() || '';
+  const lastName = child.lastName?.trim() || '';
+  const fullName = [firstName, lastName].filter(Boolean).join(' ') || 'Child';
+
+  return {
+    id: child._id,
+    name: fullName,
+    nameColor: NAME_COLORS[index % NAME_COLORS.length],
+    age: child.age,
+    otherDetails: child.otherDetails?.trim() || '',
+    imageUri: hasValidImageUrl(child.image) ? child.image.trim() : null,
+  };
+}
 
 function HeaderIcon() {
   return (
@@ -67,83 +65,35 @@ function HeaderIcon() {
   );
 }
 
-function AtSchoolBadge() {
+function ChildAvatar({ imageUri }) {
+  if (imageUri) {
+    return <Image source={{ uri: imageUri }} style={styles.avatar} resizeMode="cover" />;
+  }
+
   return (
-    <View style={styles.badge}>
-      <Text style={styles.badgeText}>At School</Text>
+    <View style={[styles.avatar, styles.avatarPlaceholder]}>
+      <MaterialCommunityIcons name="account" size={32} color={TEXT_GREY} />
     </View>
   );
 }
 
-function ActionButton({ backgroundColor, icon, label, onPress }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionBtn,
-        { backgroundColor },
-        pressed && { opacity: 0.92 },
-      ]}
-    >
-      <MaterialCommunityIcons name={icon} size={22} color="#FFFFFF" />
-      <Text style={styles.actionBtnText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function ChildCard({ child, expanded, onToggle }) {
+function ChildCard({ child }) {
   return (
     <View style={[styles.card, CARD_SHADOW]}>
-      <Pressable
-        onPress={onToggle}
-        style={({ pressed }) => [styles.cardTop, pressed && { opacity: 0.96 }]}
-      >
-        <Image source={child.avatar} style={styles.avatar} />
+      <View style={styles.cardTop}>
+        <ChildAvatar imageUri={child.imageUri} />
         <View style={styles.cardMain}>
           <Text style={[styles.childName, { color: child.nameColor }]}>{child.name}</Text>
-          <Text style={styles.childMeta}>
-            Age {child.age} ( {child.room} )
-          </Text>
-          <Text style={styles.latestLine} numberOfLines={2}>
-            <Text style={styles.latestPrefix}>Latest: </Text>
-            <Text style={styles.latestBody}>
-              {child.latestLabel} {child.latestTime}
+          {child.age != null && child.age !== '' ? (
+            <Text style={styles.childMeta}>Age {child.age}</Text>
+          ) : null}
+          {child.otherDetails ? (
+            <Text style={styles.otherDetails} numberOfLines={3}>
+              {child.otherDetails}
             </Text>
-          </Text>
-        </View>
-        <View style={styles.cardRight}>
-          <AtSchoolBadge />
-          {expanded ? (
-            <>
-              <View style={styles.chevronSpacer} />
-              <MaterialCommunityIcons name="chevron-up" size={26} color={BLUE} />
-            </>
           ) : null}
         </View>
-      </Pressable>
-
-      {expanded ? (
-        <View style={styles.actions}>
-          <ActionButton
-            backgroundColor={GREEN}
-            icon="file-chart-outline"
-            label="Child Report"
-            onPress={() => {}}
-          />
-          <ActionButton
-            backgroundColor={BLUE}
-            icon="image-multiple-outline"
-            label="Photo Gallery"
-            onPress={() => {}}
-          />
-          <ActionButton
-            backgroundColor={CORAL}
-            icon="account-heart-outline"
-            label="Classes"
-            onPress={() => {}}
-          />
-        </View>
-      ) : null}
+      </View>
     </View>
   );
 }
@@ -151,19 +101,31 @@ function ChildCard({ child, expanded, onToggle }) {
 export default function ChildrenScreen() {
   const navigation = useNavigation();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState(
-    () => MOCK_CHILDREN.find((c) => c.expandedDefault)?.id ?? MOCK_CHILDREN[0]?.id,
+
+  const {
+    data: children = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useGetMyChildrenQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch]),
+  );
+
+  const childCards = useMemo(
+    () => children.map((child, index) => mapChildToCard(child, index)),
+    [children],
   );
 
   const countLabel = useMemo(
-    () =>
-      `${MOCK_CHILDREN.length} Child${MOCK_CHILDREN.length === 1 ? '' : 'ren'} Enrolled`,
-    [],
+    () => `${childCards.length} Child${childCards.length === 1 ? '' : 'ren'} Enrolled`,
+    [childCards.length],
   );
-
-  const toggle = (id) => {
-    setExpandedId((prev) => (prev === id ? null : id));
-  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -172,50 +134,65 @@ export default function ChildrenScreen() {
         onClose={() => setDrawerOpen(false)}
         navigation={navigation}
       />
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.menuRowOnly}>
-          <Pressable
-            onPress={() => setDrawerOpen(true)}
-            style={({ pressed }) => [
-              styles.menuIconSquare,
-              pressed && { opacity: 0.92 },
-            ]}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Open menu"
-          >
-            <Image source={images.dImage} style={styles.menuIconImage} resizeMode="contain" />
-          </Pressable>
+      {isLoading ? (
+        <View style={styles.loadingBlank}>
+          <ActivityIndicator size="large" color={BLUE} />
         </View>
-        <View style={styles.headerRow}>
-          <HeaderIcon />
-          <View style={styles.headerTextBlock}>
-            <Text style={styles.screenTitle}>My Children</Text>
-            <Text style={styles.screenSubtitle}>{countLabel}</Text>
+      ) : (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.menuRowOnly}>
+            <Pressable
+              onPress={() => setDrawerOpen(true)}
+              style={({ pressed }) => [
+                styles.menuIconSquare,
+                pressed && { opacity: 0.92 },
+              ]}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Open menu"
+            >
+              <Image source={images.dImage} style={styles.menuIconImage} resizeMode="contain" />
+            </Pressable>
           </View>
-          <Pressable
-            onPress={() => navigation.navigate('AddChild')}
-            style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.9 }]}
-            accessibilityRole="button"
-            accessibilityLabel="Add child"
-          >
-            <MaterialCommunityIcons name="plus" size={22} color="#FFFFFF" />
-          </Pressable>
-        </View>
+          <View style={styles.headerRow}>
+            <HeaderIcon />
+            <View style={styles.headerTextBlock}>
+              <Text style={styles.screenTitle}>My Children</Text>
+              <Text style={styles.screenSubtitle}>{countLabel}</Text>
+            </View>
+            <Pressable
+              onPress={() => navigation.navigate('AddChild')}
+              style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.9 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Add child"
+            >
+              <MaterialCommunityIcons name="plus" size={22} color="#FFFFFF" />
+            </Pressable>
+          </View>
 
-        {MOCK_CHILDREN.map((child) => (
-          <ChildCard
-            key={child.id}
-            child={child}
-            expanded={expandedId === child.id}
-            onToggle={() => toggle(child.id)}
-          />
-        ))}
-      </ScrollView>
+          {isError ? (
+            <View style={styles.centerBlock}>
+              <Text style={styles.emptyText}>Could not load children.</Text>
+              <Pressable
+                onPress={refetch}
+                style={({ pressed }) => [styles.retryBtn, pressed && { opacity: 0.9 }]}
+              >
+                <Text style={styles.retryBtnText}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : childCards.length === 0 ? (
+            <View style={styles.centerBlock}>
+              <Text style={styles.emptyText}>No children enrolled yet.</Text>
+            </View>
+          ) : (
+            childCards.map((child) => <ChildCard key={child.id} child={child} />)
+          )}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
@@ -224,6 +201,12 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: PAGE_BG,
+  },
+  loadingBlank: {
+    flex: 1,
+    backgroundColor: PAGE_BG,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scroll: {
     flex: 1,
@@ -291,18 +274,21 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginBottom: 16,
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingVertical: 16,
   },
   cardTop: {
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'center',
   },
   avatar: {
     width: 56,
     height: 56,
     borderRadius: 28,
     backgroundColor: '#E5E7EB',
+  },
+  avatarPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cardMain: {
     flex: 1,
@@ -319,53 +305,31 @@ const styles = StyleSheet.create({
     color: TEXT_GREY,
     fontWeight: '500',
   },
-  latestLine: {
+  otherDetails: {
     marginTop: 6,
     fontSize: 12,
-  },
-  latestPrefix: {
     color: TEXT_MUTED,
-    fontWeight: '500',
+    lineHeight: 18,
   },
-  latestBody: {
-    color: TEXT_MUTED,
-    fontWeight: '400',
-  },
-  cardRight: {
-    alignItems: 'flex-end',
-    paddingLeft: 8,
-    width: 100,
-  },
-  chevronSpacer: {
-    flex: 1,
-    minHeight: 4,
-  },
-  badge: {
-    backgroundColor: GREEN,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-  },
-  badgeText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  actions: {
-    marginTop: 16,
-    gap: 10,
-  },
-  actionBtn: {
-    flexDirection: 'row',
+  centerBlock: {
+    paddingVertical: 40,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 14,
-    borderRadius: 14,
   },
-  actionBtnText: {
+  emptyText: {
+    fontSize: 15,
+    color: TEXT_GREY,
+    textAlign: 'center',
+  },
+  retryBtn: {
+    marginTop: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: BLUE,
+  },
+  retryBtnText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

@@ -33,14 +33,6 @@ const MENU_ITEMS = [
     screen: 'ChildReports',
   },
   {
-    id: '2',
-    label: 'Invoices & Payments',
-    icon: 'wallet-outline',
-    color: '#F9A825',
-    tab: 'Profile',
-    screen: 'InvoicesPayments',
-  },
-  {
     id: '3',
     label: 'Donation Board',
     icon: 'hand-left-outline',
