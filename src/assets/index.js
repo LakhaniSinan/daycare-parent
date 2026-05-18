@@ -1,0 +1,16 @@
+export const images = {
+  splash: require('./images/splash.png'),
+  logo: require('./images/logo.png'),
+  google: require('./images/google.png'),
+  dImage: require('./images/dImage.png'),
+  welcome: require('./images/welcome.png'),
+  tabDashboardActive: require('./images/dashboardActive.png'),
+  tabChildren: require('./images/children.png'),
+  tabMessageFocus: require('./images/messageFocus.png'),
+  teacher: require('./images/teacher.png'),
+  parent: require('./images/parent.png'),
+  child: require('./images/emma.png'),
+  pic: require('./images/pic.png'),
+  profile: require('./images/profile.png'),
+  cash: require('./images/cash.png'),
+};
