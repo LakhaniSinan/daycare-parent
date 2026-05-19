@@ -26,14 +26,6 @@ const AVATAR_RING = '#22C55E';
 
 const MENU_ITEMS = [
   {
-    id: '1',
-    label: 'Child Reports',
-    icon: 'document-text-outline',
-    color: '#7B1FA2',
-    tab: 'Dashboard',
-    screen: 'ChildReports',
-  },
-  {
     id: '3',
     label: 'Donation Board',
     icon: 'hand-left-outline',

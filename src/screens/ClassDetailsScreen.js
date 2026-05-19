@@ -292,7 +292,7 @@ export default function ClassDetailsScreen() {
         navigation={navigation}
       />
 
-      <View style={styles.topBar}>
+      <View style={styles.menuRow}>
         <Pressable
           onPress={() => setDrawerOpen(true)}
           style={({ pressed }) => [
@@ -306,20 +306,20 @@ export default function ClassDetailsScreen() {
         >
           <Image source={images.dImage} style={styles.menuIconImage} resizeMode="contain" />
         </Pressable>
+      </View>
+
+      <View style={styles.headerRow}>
         <Pressable
           onPress={() => navigation.goBack()}
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.9 }]}
           accessibilityRole="button"
           accessibilityLabel="Go back"
         >
-          <MaterialCommunityIcons name="arrow-left" size={20} color={TEXT_DARK} />
+          <MaterialCommunityIcons name="arrow-left" size={22} color={TEXT_DARK} />
         </Pressable>
-      </View>
-
-      <View style={styles.headerRow}>
-        <View style={styles.headerIconWrap}>
+        {/* <View style={styles.headerIconWrap}>
           <MaterialCommunityIcons name="card-multiple" size={22} color={BLUE} />
-        </View>
+        </View> */}
         <View style={styles.headerTextBlock}>
           <Text style={styles.studentName}>{studentName}</Text>
           <Text style={styles.sectionLabel}>Classes</Text>
@@ -459,13 +459,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: PAGE_BG,
   },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  menuRow: {
     paddingHorizontal: 20,
     paddingTop: 4,
-    paddingBottom: 8,
+    paddingBottom: 4,
+    alignSelf: 'flex-start',
   },
   menuIconSquare: {
     width: 46,
@@ -488,16 +486,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 2,
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 8,
-    gap: 12,
+    marginBottom: 12,
+    gap: 10,
   },
   headerIconWrap: {
-    marginTop: 4,
+    marginTop: 2,
   },
   headerTextBlock: {
     flex: 1,
