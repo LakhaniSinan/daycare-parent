@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Platform,
   Pressable,
@@ -17,6 +18,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import ParentDrawer from '../components/ParentDrawer';
 import { images } from '../assets';
 import { useGetClassroomsQuery, useGetParentDashboardQuery } from '../api/eps';
+import { firstClassroomStudent } from '../utils/classDetailsHelpers';
 
 const PRIMARY = '#1E88E5';
 const PAGE_BG = '#F4F6F8';
@@ -67,11 +69,15 @@ function StatCard({ icon, iconColor, value, label }) {
 function mapClassroomToRow(classroom, index) {
   const enrolled = Array.isArray(classroom.students) ? classroom.students.length : 0;
   const maxCapacity = classroom.capacity ?? 0;
+  const firstStudent = firstClassroomStudent(classroom);
 
   return {
     id: classroom._id,
+    studentId: firstStudent?.id ?? null,
+    studentName: firstStudent?.name ?? 'Child',
+    photoGallery: classroom.photoGallery ?? [],
     title: classroom.className?.trim() || 'Class',
-    subtitle: classroom.classTypeId?.name?.trim() || '',
+    subtitle: classroom.classTypeId?.name?.trim() || classroom.classType?.name?.trim() || '',
     capacity: `${enrolled}/${maxCapacity}`,
     backgroundColor: CLASS_ROW_COLORS[index % CLASS_ROW_COLORS.length],
   };
@@ -82,9 +88,11 @@ function ColoredClassRow({
   title,
   subtitle,
   capacity,
+  onPress,
 }) {
   return (
     <Pressable
+      onPress={onPress}
       style={({ pressed }) => [
         styles.classRowColored,
         { backgroundColor },
@@ -168,6 +176,23 @@ export default function DashboardScreen() {
   const classRows = useMemo(
     () => classrooms.map((classroom, index) => mapClassroomToRow(classroom, index)),
     [classrooms],
+  );
+
+  const openClassDetails = useCallback(
+    (row) => {
+      if (!row.studentId) {
+        Alert.alert('No students', 'This class has no enrolled students yet.');
+        return;
+      }
+      navigation.navigate('ClassDetails', {
+        studentId: row.studentId,
+        classroomId: row.id,
+        studentName: row.studentName,
+        capacityLabel: row.capacity,
+        photoGallery: row.photoGallery,
+      });
+    },
+    [navigation],
   );
 
   const refetch = useCallback(() => {
@@ -261,6 +286,7 @@ export default function DashboardScreen() {
                   title={row.title}
                   subtitle={row.subtitle}
                   capacity={row.capacity}
+                  onPress={() => openClassDetails(row)}
                 />
               ))
             )}

@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
+  Image,
   KeyboardAvoidingView,
+  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -13,11 +17,15 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useDispatch } from 'react-redux';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 
+import { useRegisterParentMutation } from '../api/eps';
 import AppButton from '../components/AppButton';
 import { setAuthData } from '../store/authSlice';
 import { saveParentSession } from '../utils/authStorage';
+import { authApiErrorMessage, normalizeAuthPayload } from '../utils/authSession';
 import AppTextInput from '../components/appTextInput';
+import { uploadImageToCloudinary } from '../services/cloudinaryUpload';
 import { signupValidationSchema } from '../validation/authSchemas';
 
 const PRIMARY_BLUE = '#1E88E5';
@@ -25,9 +33,73 @@ const GREY_MUTED = '#6B7280';
 const GREY_PLACEHOLDER = '#9CA3AF';
 const TEXT_PRIMARY = '#111827';
 
+const PHOTO_OPTIONS = {
+  mediaType: 'photo',
+  quality: 0.85,
+  maxWidth: 1200,
+  maxHeight: 1200,
+};
+
+async function ensureAndroidCameraPermission() {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+  try {
+    const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, {
+      title: 'Camera permission',
+      message: 'Allow camera access to take a profile photo.',
+      buttonPositive: 'OK',
+    });
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  } catch {
+    return false;
+  }
+}
+
+async function handlePickerResult(result, setPhotoUri, setProfileImageUrl, setIsUploadingPhoto) {
+  if (result.didCancel) {
+    return;
+  }
+  if (result.errorCode) {
+    Alert.alert('Photo error', result.errorMessage || 'Could not use that image.');
+    return;
+  }
+  const asset = result.assets?.[0];
+  if (!asset?.uri) {
+    return;
+  }
+  setPhotoUri(asset.uri);
+  setProfileImageUrl(null);
+  setIsUploadingPhoto(true);
+  try {
+    const json = await uploadImageToCloudinary(asset);
+    const secureUrl = json?.secure_url;
+    if (secureUrl) {
+      setProfileImageUrl(secureUrl);
+    } else {
+      Alert.alert(
+        'Upload incomplete',
+        'Could not get image URL from Cloudinary. Try another photo.',
+      );
+    }
+  } catch {
+    Alert.alert(
+      'Upload failed',
+      'Photo could not be uploaded. Check your connection and try again.',
+    );
+  } finally {
+    setIsUploadingPhoto(false);
+  }
+}
+
 export default function Signup() {
   const navigation = useNavigation();
   const dispatch = useDispatch();
+  const [registerParent, { isLoading: isRegistering }] = useRegisterParentMutation();
+
+  const [photoUri, setPhotoUri] = useState(null);
+  const [profileImageUrl, setProfileImageUrl] = useState(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const goBack = () => {
     if (navigation.canGoBack()) {
@@ -36,6 +108,43 @@ export default function Signup() {
       navigation.navigate('Login');
     }
   };
+
+  const openPhotoOptions = () => {
+    Alert.alert('Profile photo', 'Add or change your profile photo', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Take photo',
+        onPress: async () => {
+          const allowed = await ensureAndroidCameraPermission();
+          if (!allowed) {
+            Alert.alert('Permission needed', 'Camera access is required to take a photo.');
+            return;
+          }
+          const result = await launchCamera(PHOTO_OPTIONS);
+          await handlePickerResult(
+            result,
+            setPhotoUri,
+            setProfileImageUrl,
+            setIsUploadingPhoto,
+          );
+        },
+      },
+      {
+        text: 'Choose from library',
+        onPress: async () => {
+          const result = await launchImageLibrary({ ...PHOTO_OPTIONS, selectionLimit: 1 });
+          await handlePickerResult(
+            result,
+            setPhotoUri,
+            setProfileImageUrl,
+            setIsUploadingPhoto,
+          );
+        },
+      },
+    ]);
+  };
+
+  const isBusy = isRegistering || isUploadingPhoto;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
@@ -47,6 +156,7 @@ export default function Signup() {
         <Formik
           initialValues={{
             firstName: '',
+            lastName: '',
             email: '',
             phone: '',
             password: '',
@@ -56,25 +166,54 @@ export default function Signup() {
           validateOnChange
           validateOnBlur
           onSubmit={async (values, { setErrors, setFieldTouched }) => {
+            if (!profileImageUrl?.trim()) {
+              Alert.alert(
+                'Profile photo required',
+                isUploadingPhoto
+                  ? 'Please wait for your photo to finish uploading.'
+                  : 'Add a profile photo before creating your account.',
+              );
+              return;
+            }
+
             const email = values.email.trim().toLowerCase();
-            const first = values.firstName.trim();
-            const session = {
-              token: 'demo-parent-session',
-              user: {
-                name: first || 'Parent',
-                email,
-                role: 'parent',
-              },
-              parentId: null,
+            const body = {
+              firstName: values.firstName.trim(),
+              lastName: values.lastName.trim(),
+              email,
+              phoneNumber: values.phone.trim(),
+              password: values.password,
+              confirmPassword: values.confirmPassword,
+              role: 'parent',
+              profileImage: profileImageUrl.trim(),
             };
+
             try {
-              await saveParentSession(session);
-              dispatch(setAuthData(session));
-              navigation.replace('Main');
-            } catch {
+              const raw = await registerParent(body).unwrap();
+              const session = normalizeAuthPayload(raw, email);
+              if (session) {
+                try {
+                  await saveParentSession(session);
+                  dispatch(setAuthData(session));
+                  navigation.replace('Main');
+                  return;
+                } catch {
+                  setFieldTouched('email', true, false);
+                  setErrors({
+                    email: 'Account created but session could not be saved. Please sign in.',
+                  });
+                  return;
+                }
+              }
+              Alert.alert(
+                'Account created',
+                'Your account was created. Please sign in with your email and password.',
+                [{ text: 'OK', onPress: () => navigation.replace('Login') }],
+              );
+            } catch (err) {
               setFieldTouched('email', true, false);
               setErrors({
-                email: 'Could not save your session. Please try again.',
+                email: authApiErrorMessage(err, 'Could not create account. Please try again.'),
               });
             }
           }}
@@ -103,11 +242,29 @@ export default function Signup() {
                 <Ionicons name="chevron-back" size={28} color={PRIMARY_BLUE} />
               </Pressable>
 
-              <View style={styles.avatarWrap}>
+              <Pressable
+                onPress={openPhotoOptions}
+                style={styles.avatarWrap}
+                accessibilityRole="button"
+                accessibilityLabel="Add profile photo"
+              >
                 <View style={styles.avatarCircle}>
-                  <Ionicons name="person" size={48} color="#FFFFFF" />
+                  {photoUri ? (
+                    <Image source={{ uri: photoUri }} style={styles.avatarImage} />
+                  ) : (
+                    <Ionicons name="person" size={48} color="#FFFFFF" />
+                  )}
+                  {isUploadingPhoto ? (
+                    <View style={styles.avatarOverlay}>
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    </View>
+                  ) : null}
                 </View>
-              </View>
+                <View style={styles.avatarBadge}>
+                  <Ionicons name="camera" size={16} color="#FFFFFF" />
+                </View>
+              </Pressable>
+              <Text style={styles.photoHint}>Tap to add profile photo</Text>
 
               <Text style={styles.title}>Create Account</Text>
               <Text style={styles.subtitle}>Join Early Start Platform</Text>
@@ -121,6 +278,22 @@ export default function Signup() {
                   autoCapitalize="words"
                   error={errors.firstName}
                   touched={touched.firstName}
+                  startIconComponent={
+                    <Ionicons
+                      name="person-outline"
+                      size={18}
+                      color={PRIMARY_BLUE}
+                    />
+                  }
+                />
+                <AppTextInput
+                  value={values.lastName}
+                  onChangeText={handleChange('lastName')}
+                  onBlur={handleBlur('lastName')}
+                  placeholder="Last Name"
+                  autoCapitalize="words"
+                  error={errors.lastName}
+                  touched={touched.lastName}
                   startIconComponent={
                     <Ionicons
                       name="person-outline"
@@ -199,6 +372,8 @@ export default function Signup() {
                 title="Create Account"
                 type="primary"
                 onPress={handleSubmit}
+                loading={isBusy}
+                disabled={isBusy}
                 style={styles.btnCreate}
                 textStyle={styles.btnCreateLabel}
               />
@@ -248,7 +423,7 @@ const styles = StyleSheet.create({
   },
   avatarWrap: {
     marginTop: 4,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   avatarCircle: {
     width: 108,
@@ -257,6 +432,35 @@ const styles = StyleSheet.create({
     backgroundColor: PRIMARY_BLUE,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+  },
+  avatarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: TEXT_PRIMARY,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  photoHint: {
+    fontSize: 11,
+    color: GREY_MUTED,
+    marginBottom: 4,
   },
   title: {
     marginTop: 12,

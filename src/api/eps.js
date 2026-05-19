@@ -5,6 +5,7 @@ export const BASE_URL = 'http://192.168.100.37:3000/api';
 
 export const API = {
   AUTH_LOGIN: '/auth/login',
+  AUTH_REGISTER: '/auth/register',
   CLASS_TYPES: 'classrooms/class-types',
   CLASSROOMS: 'classrooms',
   STUDENTS_CREATE: 'students/create',
@@ -14,6 +15,8 @@ export const API = {
   CARPOOL_REQUESTS: 'carpool/requests',
   CARPOOL_REQUEST_ACTION: 'carpool/request/action',
   PARENT_MY_CHILDREN: 'parent/my-children',
+  PARENT_STUDENT_CLASSES: 'parent/student-classes',
+  PARENT_CLASS_DETAILS: 'parent/student/class-details',
   PARENT_DASHBOARD: 'parent/dashboard',
   DONATION_OPEN: 'donation/open',
   DONATION_CREATE_PAYMENT_INTENT: 'donation/create-payment-intent',
@@ -167,6 +170,13 @@ export const baseApi = createApi({
         body: { email, password },
       }),
     }),
+    registerParent: build.mutation({
+      query: (body) => ({
+        url: API.AUTH_REGISTER,
+        method: 'POST',
+        body,
+      }),
+    }),
     getClassTypes: build.query({
       query: () => API.CLASS_TYPES,
       transformResponse: (response) => {
@@ -198,6 +208,30 @@ export const baseApi = createApi({
         return Array.isArray(raw) ? raw : [];
       },
       providesTags: ['Students'],
+    }),
+    getStudentClasses: build.query({
+      query: (studentId) => `${API.PARENT_STUDENT_CLASSES}/${studentId}`,
+      transformResponse: (response) => {
+        const raw = response?.data;
+        const classes = Array.isArray(raw) ? raw : [];
+        return {
+          totalClasses: Number(response?.totalClasses) || classes.length,
+          classes,
+        };
+      },
+      providesTags: (_result, _error, studentId) => [
+        { type: 'Students', id: `classes-${studentId}` },
+      ],
+    }),
+    getClassDetails: build.query({
+      query: ({ studentId, classroomId, date }) => ({
+        url: `${API.PARENT_CLASS_DETAILS}/${studentId}/${classroomId}`,
+        params: { date },
+      }),
+      transformResponse: (response) => response?.data ?? response,
+      providesTags: (_result, _error, { studentId, classroomId, date }) => [
+        { type: 'Students', id: `details-${studentId}-${classroomId}-${date}` },
+      ],
     }),
     getParentDashboard: build.query({
       query: () => API.PARENT_DASHBOARD,
@@ -357,10 +391,13 @@ export const baseApi = createApi({
 
 export const {
   useLoginParentMutation,
+  useRegisterParentMutation,
   useGetClassTypesQuery,
   useGetClassroomsQuery,
   useCreateStudentMutation,
   useGetMyChildrenQuery,
+  useGetStudentClassesQuery,
+  useGetClassDetailsQuery,
   useGetParentDashboardQuery,
   useGetAllCarpoolsQuery,
   useCreateCarpoolMutation,

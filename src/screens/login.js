@@ -21,40 +21,13 @@ import { saveParentSession } from '../utils/authStorage';
 import AppTextInput from '../components/appTextInput';
 import { images } from '../assets';
 import { loginValidationSchema } from '../validation/authSchemas';
+import { authApiErrorMessage, normalizeAuthPayload } from '../utils/authSession';
 
 /** Primary brand blue — matches AppButton / screenshot */
 const PRIMARY_BLUE = '#1E88E5';
 const GREY_MUTED = '#6B7280';
 const TEXT_PRIMARY = '#111827';
 const RED_FORGOT = '#E53935';
-
-function normalizeLoginPayload(data, emailFallback) {
-  if (data == null) return null;
-  const root = data.data != null ? data.data : data;
-  const token =
-    root.token ??
-    root.accessToken ??
-    root.access_token ??
-    data.token ??
-    data.accessToken;
-  const user =
-    root.user ??
-    root.parent ??
-    (root.email ? { email: root.email } : emailFallback ? { email: emailFallback } : null);
-  if (!token || typeof token !== 'string') return null;
-  const resolvedUser = user ?? { email: emailFallback ?? '' };
-  const parentId = resolvedUser?.id ?? resolvedUser?._id ?? null;
-  return { token, user: resolvedUser, parentId };
-}
-
-function loginErrorMessage(err) {
-  const d = err?.data;
-  if (typeof d === 'string') return d;
-  if (d?.message) return Array.isArray(d.message) ? d.message.join(', ') : d.message;
-  if (d?.error) return d.error;
-  if (err?.error === 'FETCH_ERROR') return 'Network error. Check server and BASE_URL.';
-  return 'Invalid email or password.';
-}
 
 export default function Login() {
   const navigation = useNavigation();
@@ -84,7 +57,7 @@ export default function Login() {
                 email,
                 password: values.password,
               }).unwrap();
-              const session = normalizeLoginPayload(raw, email);
+              const session = normalizeAuthPayload(raw, email);
               if (!session) {
                 setFieldTouched('password', true, false);
                 setErrors({
@@ -104,7 +77,9 @@ export default function Login() {
               }
             } catch (err) {
               setFieldTouched('password', true, false);
-              setErrors({ password: loginErrorMessage(err) });
+              setErrors({
+                password: authApiErrorMessage(err, 'Invalid email or password.'),
+              });
             }
           }}
         >

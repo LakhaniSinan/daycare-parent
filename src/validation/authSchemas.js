@@ -21,6 +21,11 @@ export const signupValidationSchema = yup.object({
     .trim()
     .required('First name is required')
     .min(2, 'First name must be at least 2 characters'),
+  lastName: yup
+    .string()
+    .trim()
+    .required('Last name is required')
+    .min(2, 'Last name must be at least 2 characters'),
   email: yup
     .string()
     .trim()

@@ -77,9 +77,14 @@ function ChildAvatar({ imageUri }) {
   );
 }
 
-function ChildCard({ child }) {
+function ChildCard({ child, onPress }) {
   return (
-    <View style={[styles.card, CARD_SHADOW]}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.card, CARD_SHADOW, pressed && styles.cardPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={`View classes for ${child.name}`}
+    >
       <View style={styles.cardTop}>
         <ChildAvatar imageUri={child.imageUri} />
         <View style={styles.cardMain}>
@@ -93,8 +98,9 @@ function ChildCard({ child }) {
             </Text>
           ) : null}
         </View>
+        <MaterialCommunityIcons name="chevron-right" size={24} color={TEXT_MUTED} />
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -189,7 +195,18 @@ export default function ChildrenScreen() {
               <Text style={styles.emptyText}>No children enrolled yet.</Text>
             </View>
           ) : (
-            childCards.map((child) => <ChildCard key={child.id} child={child} />)
+            childCards.map((child) => (
+              <ChildCard
+                key={child.id}
+                child={child}
+                onPress={() =>
+                  navigation.navigate('StudentClasses', {
+                    studentId: child.id,
+                    studentName: child.name,
+                  })
+                }
+              />
+            ))
           )}
         </ScrollView>
       )}
@@ -275,6 +292,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 16,
     paddingVertical: 16,
+  },
+  cardPressed: {
+    opacity: 0.92,
   },
   cardTop: {
     flexDirection: 'row',

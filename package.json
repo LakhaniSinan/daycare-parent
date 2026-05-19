@@ -23,6 +23,7 @@
     "react": "19.2.3",
     "react-native": "0.85.2",
     "react-native-dimension": "^1.0.6",
+    "react-native-gesture-handler": "^2.31.2",
     "react-native-image-picker": "^8.2.1",
     "react-native-nitro-image": "^0.13.1",
     "react-native-nitro-modules": "^0.35.5",
