@@ -505,30 +505,28 @@ export default function CarpoolsScreen() {
   }, [incomingRequestEntries, isRequestsTab, parentId, search]);
 
   const handleIncomingRequestAction = async (requestId, action) => {
-    if (!requestId) {
-      Alert.alert('Error', 'Missing request id.');
-      return;
-    }
+    if (!requestId) return;
 
     setActingRequest({ requestId, action });
     try {
-      const result = await carpoolRequestAction({
+      await carpoolRequestAction({
         requestId: String(requestId),
         action,
-      });
-
-      if (!result.error) {
-        Alert.alert(
-          'Updated',
-          action === 'accepted' ? 'Request accepted.' : 'Request rejected.',
-        );
-      }
+      }).unwrap();
+    } catch {
+      // Action may still succeed on the server; refresh without showing an error modal.
     } finally {
       setActingRequest(null);
     }
 
-    refetchIncomingRequests();
-    refetchCarpools();
+    try {
+      await refetchIncomingRequests();
+      if (!isRequestsTab) {
+        await refetchCarpools();
+      }
+    } catch {
+      // Ignore refresh errors after accept/reject.
+    }
   };
 
   const openRequestModal = (item) => {
