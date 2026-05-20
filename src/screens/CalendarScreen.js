@@ -158,6 +158,7 @@ function formatTimeRange(startTime, endTime) {
 
 function ClassSessionCard({ session }) {
   const timeLabel = formatTimeRange(session.startTime, session.endTime);
+  const childName = session.childName?.trim();
 
   return (
     <View style={[styles.classCard, CARD_SHADOW]}>
@@ -174,6 +175,13 @@ function ClassSessionCard({ session }) {
           <Text style={styles.classCardTeacher}>{session.teacherName}</Text>
         ) : null}
       </View>
+      {childName ? (
+        <View style={styles.classCardChildWrap}>
+          <Text style={styles.classCardChildName} numberOfLines={2}>
+            {childName}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -583,7 +591,7 @@ const styles = StyleSheet.create({
   },
   classCard: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 18,
     paddingVertical: 16,
@@ -620,6 +628,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: totalSize(1.05),
     color: MUTED,
+  },
+  classCardChildWrap: {
+    maxWidth: width(28),
+    marginLeft: 10,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  classCardChildName: {
+    fontSize: totalSize(1.1),
+    fontWeight: '700',
+    color: BLACK,
+    textAlign: 'right',
   },
   retryBtn: {
     marginTop: 12,

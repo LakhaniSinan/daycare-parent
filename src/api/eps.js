@@ -1,7 +1,8 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
 // export const BASE_URL = 'https://daycare-backend-bdecee4507c1.herokuapp.com/api';
-export const BASE_URL = 'http://192.168.100.37:3000/api';
+// export const BASE_URL = 'http://192.168.100.37:3000/api';
+export const BASE_URL = 'https://0g01d8wd-3000.inc1.devtunnels.ms/api';
 
 export const API = {
   AUTH_LOGIN: '/auth/login',
@@ -13,6 +14,7 @@ export const API = {
   CARPOOL_CREATE: 'carpool/create-carpool',
   CARPOOL_SEND_REQUEST: 'carpool/send-request',
   CARPOOL_REQUESTS: 'carpool/requests',
+  CARPOOL_GET_OWN_REQUESTS: 'carpool/request/get-own',
   CARPOOL_REQUEST_ACTION: 'carpool/request/action',
   PARENT_MY_CHILDREN: 'parent/my-children',
   PARENT_STUDENT_CLASSES: 'parent/student-classes',
@@ -35,13 +37,20 @@ function formatTeacherName(teacher) {
 }
 
 function normalizeCalendarSession(item, index) {
+  const childName = item?.childName?.trim() || '';
+  const childId = item?.childId ?? null;
+  const className = item?.className ?? item?.name ?? item?.class?.className ?? 'Class';
+  const startTime = item?.startTime ?? item?.start ?? '';
+
   return {
     id:
       item?._id ??
       item?.id ??
-      `${item?.className ?? item?.name ?? 'class'}-${item?.startTime ?? index}`,
-    className: item?.className ?? item?.name ?? item?.class?.className ?? 'Class',
-    startTime: item?.startTime ?? item?.start ?? '',
+      `${className}-${childId ?? childName}-${startTime}-${index}`,
+    className,
+    childId,
+    childName,
+    startTime,
     endTime: item?.endTime ?? item?.end ?? '',
     classType: item?.classTypeId?.name ?? item?.classType ?? item?.type ?? '',
     teacherName: formatTeacherName(item?.teacherId ?? item?.teacher),
@@ -146,6 +155,21 @@ function normalizeCarpoolRequestsList(response) {
   return [];
 }
 
+function normalizeOwnCarpoolRequestsList(response) {
+  if (!response) return [];
+
+  const payload = response?.data ?? response;
+
+  if (Array.isArray(payload)) {
+    return payload.filter(Boolean);
+  }
+  if (Array.isArray(payload?.data)) {
+    return payload.data.filter(Boolean);
+  }
+
+  return [];
+}
+
 export const baseApi = createApi({
   reducerPath: 'api',
   baseQuery: fetchBaseQuery({
@@ -236,10 +260,20 @@ export const baseApi = createApi({
     getParentDashboard: build.query({
       query: () => API.PARENT_DASHBOARD,
       transformResponse: (response) => {
-        const raw = response?.data ?? response;
+        const top = response?.data ?? response;
+        const raw =
+          top?.allClasses != null ||
+          top?.todayClasses != null ||
+          top?.totalChildren != null ||
+          top?.totalClasses != null
+            ? top
+            : top?.data ?? top;
+
         return {
           totalChildren: Number(raw?.totalChildren) || 0,
           totalClasses: Number(raw?.totalClasses) || 0,
+          allClasses: Array.isArray(raw?.allClasses) ? raw.allClasses : [],
+          todayClasses: Array.isArray(raw?.todayClasses) ? raw.todayClasses : [],
         };
       },
       providesTags: ['Dashboard'],
@@ -270,57 +304,20 @@ export const baseApi = createApi({
     }),
     getCarpoolRequests: build.query({
       query: (carpoolId) => `${API.CARPOOL_REQUESTS}/${carpoolId}`,
-      transformResponse: (response) => normalizeCarpoolRequestsList(response),
+      transformResponse: (response) => {
+        const payload = response?.data ?? response;
+        return {
+          requests: normalizeCarpoolRequestsList(response),
+          carpool: payload?.carpool ?? null,
+        };
+      },
       providesTags: (_result, _error, carpoolId) => [
         { type: 'Carpools', id: `requests-${carpoolId}` },
       ],
     }),
-    getMyCarpoolIncomingRequests: build.query({
-      async queryFn(parentId, _api, _extraOptions, baseQuery) {
-        if (!parentId) {
-          return { data: [] };
-        }
-
-        const allResult = await baseQuery(API.CARPOOL_GET_ALL);
-        if (allResult.error) {
-          return { error: allResult.error };
-        }
-
-        const allCarpools = Array.isArray(allResult.data?.data)
-          ? allResult.data.data
-          : [];
-        const myCarpools = allCarpools.filter(
-          (carpool) => String(carpool.creatorId) === String(parentId),
-        );
-
-        const entries = await Promise.all(
-          myCarpools.map(async (carpool) => {
-            const carpoolId = carpool._id ?? carpool.id;
-            if (!carpoolId) {
-              return { carpool, requests: [] };
-            }
-
-            const requestsResult = await baseQuery(
-              `${API.CARPOOL_REQUESTS}/${carpoolId}`,
-            );
-            const requests = requestsResult.error
-              ? []
-              : normalizeCarpoolRequestsList(requestsResult.data);
-
-            const carpoolFromRequest =
-              requestsResult.data?.data?.carpool ?? requestsResult.data?.carpool;
-
-            return {
-              carpool: carpoolFromRequest ?? carpool,
-              requests,
-            };
-          }),
-        );
-
-        return {
-          data: entries.filter((entry) => entry.requests.length > 0),
-        };
-      },
+    getMyOwnCarpoolRequests: build.query({
+      query: () => API.CARPOOL_GET_OWN_REQUESTS,
+      transformResponse: (response) => normalizeOwnCarpoolRequestsList(response),
       providesTags: ['Carpools'],
     }),
     carpoolRequestAction: build.mutation({
@@ -338,8 +335,22 @@ export const baseApi = createApi({
     getOpenDonations: build.query({
       query: () => API.DONATION_OPEN,
       transformResponse: (response) => {
-        const raw = response?.donations ?? response?.data?.donations ?? response?.data;
-        return Array.isArray(raw) ? raw : [];
+        const body = response?.data ?? response;
+        const donations = Array.isArray(body?.donations)
+          ? body.donations
+          : Array.isArray(response?.donations)
+            ? response.donations
+            : [];
+        const kpis = body?.kpis ?? response?.kpis ?? {};
+
+        return {
+          donations,
+          kpis: {
+            openDonations: Number(kpis.openDonations) || 0,
+            donorsCount: Number(kpis.donorsCount) || 0,
+            totalCollection: Number(kpis.totalCollection) || 0,
+          },
+        };
       },
       providesTags: ['Donations'],
     }),
@@ -403,7 +414,7 @@ export const {
   useCreateCarpoolMutation,
   useSendCarpoolRequestMutation,
   useGetCarpoolRequestsQuery,
-  useGetMyCarpoolIncomingRequestsQuery,
+  useGetMyOwnCarpoolRequestsQuery,
   useCarpoolRequestActionMutation,
   useGetUserDetailsQuery,
   useUpdateProfileMutation,

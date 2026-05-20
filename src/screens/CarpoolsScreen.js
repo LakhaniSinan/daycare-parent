@@ -23,11 +23,11 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import ParentDrawer from '../components/ParentDrawer';
 import { images } from '../assets';
 import {
-  useCarpoolRequestActionMutation,
   useGetAllCarpoolsQuery,
-  useGetMyCarpoolIncomingRequestsQuery,
+  useGetMyOwnCarpoolRequestsQuery,
   useSendCarpoolRequestMutation,
 } from '../api/eps';
+import { mapOwnCarpoolRequest } from '../utils/carpoolHelpers';
 
 function getApiErrorMessage(err, fallback) {
   const d = err?.data;
@@ -139,32 +139,19 @@ function matchesSearch(item, query) {
   return haystack.includes(q);
 }
 
-function mapIncomingRequest(request) {
-  const requester =
-    request.requesterId ?? request.parent ?? request.user ?? request.requester ?? {};
-  const requesterName = [requester.firstName, requester.lastName].filter(Boolean).join(' ');
-  return {
-    requestId: request._id ?? request.id ?? request.requestId,
-    seatsRequested: request.seatsRequested ?? request.seats ?? '—',
-    requesterName:
-      request.name ??
-      requester.name ??
-      (requesterName || requester.email || 'Parent'),
-    phone: request.phone ?? requester.phoneNumber ?? requester.phone ?? '',
-    status: (request.status ?? 'pending').toLowerCase(),
-  };
-}
-
 function matchesRequestCarpoolCard(card, query) {
   if (matchesSearch(card, query)) return true;
   if (!query.trim()) return true;
   const q = query.trim().toLowerCase();
   return card.requests.some((r) =>
-    [r.requesterName, r.phone, String(r.seatsRequested), r.status]
-      .join(' ')
-      .toLowerCase()
-      .includes(q),
+    [String(r.seatsRequested), r.status].join(' ').toLowerCase().includes(q),
   );
+}
+
+function statusBadgeStyle(status) {
+  if (status === 'accepted') return styles.statusBadgeAccepted;
+  if (status === 'rejected') return styles.statusBadgeRejected;
+  return styles.statusBadgePending;
 }
 
 function RouteTimeline({ stops }) {
@@ -198,7 +185,7 @@ function RouteTimeline({ stops }) {
   );
 }
 
-function CarpoolCard({ item, showRequest, onRequest, isRequesting }) {
+function CarpoolCard({ item, showRequest, showViewRequests, onViewRequests, onRequest, isRequesting }) {
   const seatsAvailable = parseSeatsAvailable(item.seatsAvailable);
   const canRequest = showRequest && seatsAvailable > 0;
   const isFull = showRequest && seatsAvailable === 0;
@@ -249,17 +236,25 @@ function CarpoolCard({ item, showRequest, onRequest, isRequesting }) {
         </View>
       ) : null}
 
-      <View style={styles.cardDivider} />
-      <View style={styles.cardActions}>
-        <TouchableOpacity style={styles.actionBtn} activeOpacity={0.75} onPress={() => {}}>
-          <Ionicons name="document-text-outline" size={22} color={PRIMARY} />
-          <Text style={styles.actionLabel}>View Report</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} activeOpacity={0.75} onPress={() => {}}>
-          <Ionicons name="chatbubble-outline" size={22} color={GREEN_MSG} />
-          <Text style={styles.actionLabel}>Message</Text>
-        </TouchableOpacity>
-      </View>
+      {showViewRequests ? (
+        <>
+          <View style={styles.cardDivider} />
+          <View style={styles.cardActions}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              activeOpacity={0.75}
+              onPress={onViewRequests}
+            >
+              <Ionicons name="document-text-outline" size={22} color={PRIMARY} />
+              <Text style={styles.actionLabel}>View Requests</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionBtn} activeOpacity={0.75} onPress={() => {}}>
+              <Ionicons name="chatbubble-outline" size={22} color={GREEN_MSG} />
+              <Text style={styles.actionLabel}>Message</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : null}
       {canRequest ? (
         <TouchableOpacity
           style={[styles.requestBtn, isRequesting && styles.requestBtnDisabled]}
@@ -285,7 +280,7 @@ function CarpoolCard({ item, showRequest, onRequest, isRequesting }) {
   );
 }
 
-function CarpoolRequestsCard({ carpool, actingRequest, onAccept, onReject }) {
+function MyCarpoolRequestsCard({ carpool }) {
   return (
     <View style={[styles.card, CARD_SHADOW]}>
       <View style={styles.cardTop}>
@@ -301,66 +296,23 @@ function CarpoolRequestsCard({ carpool, actingRequest, onAccept, onReject }) {
       <Text style={styles.cardTitle}>{carpool.title}</Text>
       <Text style={styles.cardSchedule}>{carpool.schedule}</Text>
 
-      {carpool.requests.map((req) => {
-        const isPending = req.status === 'pending';
-        const isBusy = Boolean(actingRequest);
-        const isThisRequest =
-          actingRequest?.requestId === req.requestId;
-        const isRejecting = isThisRequest && actingRequest?.action === 'rejected';
-        const isAccepting = isThisRequest && actingRequest?.action === 'accepted';
-
-        return (
-          <View key={req.requestId} style={styles.incomingRequestBlock}>
-            <View style={styles.infoRow}>
-              <Ionicons name="person-outline" size={18} color={PRIMARY} />
-              <Text style={styles.infoText}>{req.requesterName}</Text>
-            </View>
-            {req.phone ? (
+      {carpool.requests.map((req) => (
+        <View key={req.requestId} style={styles.incomingRequestBlock}>
+          <View style={styles.ownRequestRow}>
+            <View style={styles.ownRequestLeft}>
               <View style={styles.infoRow}>
-                <Ionicons name="call-outline" size={18} color={PRIMARY} />
-                <Text style={styles.infoText}>{req.phone}</Text>
+                <Ionicons name="people-outline" size={18} color={PRIMARY} />
+                <Text style={styles.infoText}>Seats requested: {req.seatsRequested}</Text>
               </View>
-            ) : null}
-            <View style={styles.infoRow}>
-              <Ionicons name="people-outline" size={18} color={PRIMARY} />
-              <Text style={styles.infoText}>Seats requested: {req.seatsRequested}</Text>
             </View>
-            {!isPending ? (
-              <Text style={styles.requestStatusText}>
-                Status: {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+            <View style={[styles.statusBadge, statusBadgeStyle(req.status)]}>
+              <Text style={styles.statusBadgeText}>
+                {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
               </Text>
-            ) : null}
-            {isPending ? (
-              <View style={styles.requestActionRow}>
-                <TouchableOpacity
-                  style={[styles.rejectBtn, isBusy && styles.requestBtnDisabled]}
-                  activeOpacity={0.85}
-                  onPress={() => onReject(req.requestId)}
-                  disabled={isBusy}
-                >
-                  {isRejecting ? (
-                    <ActivityIndicator color={RED_REJECT} size="small" />
-                  ) : (
-                    <Text style={styles.rejectBtnText}>Reject</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.acceptBtn, isBusy && styles.requestBtnDisabled]}
-                  activeOpacity={0.85}
-                  onPress={() => onAccept(req.requestId)}
-                  disabled={isBusy}
-                >
-                  {isAccepting ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                  ) : (
-                    <Text style={styles.acceptBtnText}>Accept</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            ) : null}
+            </View>
           </View>
-        );
-      })}
+        </View>
+      ))}
     </View>
   );
 }
@@ -423,12 +375,11 @@ export default function CarpoolsScreen() {
   const [requestTarget, setRequestTarget] = useState(null);
   const [seatsRequested, setSeatsRequested] = useState('1');
   const [requestingCarpoolId, setRequestingCarpoolId] = useState(null);
-  const [actingRequest, setActingRequest] = useState(null);
 
   const isAvailableTab = tab === 'available';
   const isMyTab = tab === 'my';
   const isRequestsTab = tab === 'requests';
-  const isCarpoolListTab = isAvailableTab || isMyTab || isRequestsTab;
+  const isCarpoolListTab = isAvailableTab || isMyTab;
 
   const {
     data: carpools = [],
@@ -436,42 +387,43 @@ export default function CarpoolsScreen() {
     isError: isCarpoolsError,
     refetch: refetchCarpools,
   } = useGetAllCarpoolsQuery(undefined, {
-    skip: isRequestsTab,
+    skip: !isAvailableTab && !isMyTab && !isRequestsTab,
     refetchOnMountOrArgChange: true,
   });
 
   const {
-    data: incomingRequestEntries = [],
-    isFetching: isRequestsFetching,
-    isError: isRequestsError,
-    refetch: refetchIncomingRequests,
-  } = useGetMyCarpoolIncomingRequestsQuery(parentId, {
+    data: ownRequests = [],
+    isFetching: isOwnRequestsFetching,
+    isError: isOwnRequestsError,
+    refetch: refetchOwnRequests,
+  } = useGetMyOwnCarpoolRequestsQuery(undefined, {
     skip: !isRequestsTab || !parentId,
     refetchOnMountOrArgChange: true,
   });
 
-  const isFetching = isRequestsTab ? isRequestsFetching : isCarpoolsFetching;
-  const isError = isRequestsTab ? isRequestsError : isCarpoolsError;
+  const isFetching = isRequestsTab ? isOwnRequestsFetching : isCarpoolsFetching;
+  const isError = isRequestsTab ? isOwnRequestsError : isCarpoolsError;
 
   const refetch = useCallback(() => {
     if (isRequestsTab) {
-      refetchIncomingRequests();
+      refetchOwnRequests();
+      refetchCarpools();
     } else {
       refetchCarpools();
     }
-  }, [isRequestsTab, refetchIncomingRequests, refetchCarpools]);
+  }, [isRequestsTab, refetchOwnRequests, refetchCarpools]);
 
   const [sendCarpoolRequest, { isLoading: isSendingRequest }] = useSendCarpoolRequestMutation();
-  const [carpoolRequestAction] = useCarpoolRequestActionMutation();
 
   useFocusEffect(
     useCallback(() => {
       if (isRequestsTab) {
-        refetchIncomingRequests();
+        refetchOwnRequests();
+        refetchCarpools();
       } else if (isCarpoolListTab) {
         refetchCarpools();
       }
-    }, [isRequestsTab, isCarpoolListTab, refetchIncomingRequests, refetchCarpools]),
+    }, [isRequestsTab, isCarpoolListTab, refetchOwnRequests, refetchCarpools]),
   );
 
   const cards = useMemo(() => carpools.map(mapCarpoolToCard), [carpools]);
@@ -494,39 +446,42 @@ export default function CarpoolsScreen() {
   const requestCarpoolCards = useMemo(() => {
     if (!isRequestsTab || !parentId) return [];
 
-    return incomingRequestEntries
-      .map(({ carpool, requests }) => {
-        const card = mapCarpoolToCard(carpool);
-        const mappedRequests = requests.map(mapIncomingRequest).filter((r) => r.requestId);
-        return { ...card, requests: mappedRequests };
-      })
+    const carpoolById = new Map(cards.map((c) => [String(c.id), c]));
+    const grouped = new Map();
+
+    ownRequests.forEach((raw) => {
+      const req = mapOwnCarpoolRequest(raw);
+      if (!req.requestId || !req.carpoolId) return;
+
+      const carpoolKey = String(req.carpoolId);
+      if (!grouped.has(carpoolKey)) {
+        const existing = carpoolById.get(carpoolKey);
+        grouped.set(carpoolKey, {
+          ...(existing ?? {
+            id: carpoolKey,
+            title: 'Carpool',
+            schedule: '',
+            driver: '—',
+            time: '—',
+            stops: [],
+          }),
+          requests: [],
+        });
+      }
+      grouped.get(carpoolKey).requests.push(req);
+    });
+
+    return Array.from(grouped.values())
       .filter((c) => c.requests.length > 0)
       .filter((c) => matchesRequestCarpoolCard(c, search));
-  }, [incomingRequestEntries, isRequestsTab, parentId, search]);
+  }, [ownRequests, cards, isRequestsTab, parentId, search]);
 
-  const handleIncomingRequestAction = async (requestId, action) => {
-    if (!requestId) return;
-
-    setActingRequest({ requestId, action });
-    try {
-      await carpoolRequestAction({
-        requestId: String(requestId),
-        action,
-      }).unwrap();
-    } catch {
-      // Action may still succeed on the server; refresh without showing an error modal.
-    } finally {
-      setActingRequest(null);
-    }
-
-    try {
-      await refetchIncomingRequests();
-      if (!isRequestsTab) {
-        await refetchCarpools();
-      }
-    } catch {
-      // Ignore refresh errors after accept/reject.
-    }
+  const openCarpoolRequests = (item) => {
+    navigation.navigate('CarpoolRequests', {
+      carpoolId: item.id,
+      carpoolTitle: item.title,
+      carpoolSchedule: item.schedule,
+    });
   };
 
   const openRequestModal = (item) => {
@@ -616,7 +571,7 @@ export default function CarpoolsScreen() {
         <View style={styles.pillRow}>
           {[
             { key: 'my', label: 'My Carpools' },
-            { key: 'available', label: 'Availble' },
+            { key: 'available', label: 'Available' },
             { key: 'requests', label: 'Requests' },
           ].map((p) => {
             const active = tab === p.key;
@@ -678,13 +633,7 @@ export default function CarpoolsScreen() {
           ) : (
             <View style={styles.listBlock}>
               {requestCarpoolCards.map((c) => (
-                <CarpoolRequestsCard
-                  key={c.id}
-                  carpool={c}
-                  actingRequest={actingRequest}
-                  onAccept={(requestId) => handleIncomingRequestAction(requestId, 'accepted')}
-                  onReject={(requestId) => handleIncomingRequestAction(requestId, 'rejected')}
-                />
+                <MyCarpoolRequestsCard key={c.id} carpool={c} />
               ))}
             </View>
           )
@@ -716,6 +665,8 @@ export default function CarpoolsScreen() {
                 key={c.id}
                 item={c}
                 showRequest={isAvailableTab}
+                showViewRequests={isMyTab}
+                onViewRequests={() => openCarpoolRequests(c)}
                 onRequest={() => openRequestModal(c)}
                 isRequesting={requestingCarpoolId === c.id}
               />
@@ -895,6 +846,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: TEXT_MUTED,
     marginTop: 4,
+  },
+  ownRequestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  ownRequestLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  statusBadgePending: {
+    backgroundColor: '#FEF3C7',
+  },
+  statusBadgeAccepted: {
+    backgroundColor: '#D1FAE5',
+  },
+  statusBadgeRejected: {
+    backgroundColor: '#FEE2E2',
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: TEXT_DARK,
   },
   requestActionRow: {
     flexDirection: 'row',

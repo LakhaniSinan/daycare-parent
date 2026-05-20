@@ -17,8 +17,8 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import ParentDrawer from '../components/ParentDrawer';
 import { images } from '../assets';
-import { useGetClassroomsQuery, useGetParentDashboardQuery } from '../api/eps';
-import { firstClassroomStudent } from '../utils/classDetailsHelpers';
+import { useGetParentDashboardQuery } from '../api/eps';
+import { formatTime12 } from '../utils/classDetailsHelpers';
 
 const PRIMARY = '#1E88E5';
 const PAGE_BG = '#F4F6F8';
@@ -37,17 +37,10 @@ const CARD_SHADOW = Platform.select({
   default: {},
 });
 
-function SectionHeader({ title, onViewAll }) {
+function SectionHeader({ title }) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <Pressable
-        onPress={onViewAll}
-        style={({ pressed }) => [styles.viewAllBtn, pressed && { opacity: 0.88 }]}
-        hitSlop={8}
-      >
-        <Text style={styles.viewAllText}>View All</Text>
-      </Pressable>
     </View>
   );
 }
@@ -66,30 +59,36 @@ function StatCard({ icon, iconColor, value, label }) {
   );
 }
 
-function mapClassroomToRow(classroom, index) {
-  const enrolled = Array.isArray(classroom.students) ? classroom.students.length : 0;
-  const maxCapacity = classroom.capacity ?? 0;
-  const firstStudent = firstClassroomStudent(classroom);
-
+function mapDashboardClassToRow(item, index) {
   return {
-    id: classroom._id,
-    studentId: firstStudent?.id ?? null,
-    studentName: firstStudent?.name ?? 'Child',
-    photoGallery: classroom.photoGallery ?? [],
-    title: classroom.className?.trim() || 'Class',
-    subtitle: classroom.classTypeId?.name?.trim() || classroom.classType?.name?.trim() || '',
-    capacity: `${enrolled}/${maxCapacity}`,
+    id: `${item.childId}-${item.classId}`,
+    classId: item.classId,
+    studentId: item.childId ?? null,
+    studentName: item.childName?.trim() || 'Child',
+    photoGallery: [],
+    title: item.className?.trim() || 'Class',
+    subtitle: item.childName?.trim() || '',
     backgroundColor: CLASS_ROW_COLORS[index % CLASS_ROW_COLORS.length],
   };
 }
 
-function ColoredClassRow({
-  backgroundColor,
-  title,
-  subtitle,
-  capacity,
-  onPress,
-}) {
+function mapTodayClassToCard(item) {
+  const start = formatTime12(item.startTime);
+  const end = formatTime12(item.endTime);
+  const time =
+    start && end ? `${start} – ${end}` : start || end || '';
+
+  return {
+    id: `${item.childId}-${item.classId}-${item.day ?? 'today'}`,
+    name: item.className?.trim() || 'Class',
+    time,
+    studentId: item.childId ?? null,
+    studentName: item.childName?.trim() || 'Child',
+    classId: item.classId,
+  };
+}
+
+function ColoredClassRow({ backgroundColor, title, subtitle, onPress }) {
   return (
     <Pressable
       onPress={onPress}
@@ -110,23 +109,13 @@ function ColoredClassRow({
         <Text style={styles.classRowTitleLight}>{title}</Text>
         <Text style={styles.classRowSubLight}>{subtitle}</Text>
       </View>
-      <View style={styles.capacityPill}>
-        <Text style={styles.capacityText}>{capacity}</Text>
-      </View>
     </Pressable>
   );
 }
 
-function TodayClassCard({ name, time, onPress }) {
+function TodayClassCard({ name, studentName, time }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.todayCard,
-        CARD_SHADOW,
-        pressed && styles.pressed,
-      ]}
-    >
+    <View style={[styles.todayCard, CARD_SHADOW]}>
       <View style={styles.todayIconWrap}>
         <MaterialCommunityIcons
           name="presentation-play"
@@ -136,10 +125,12 @@ function TodayClassCard({ name, time, onPress }) {
       </View>
       <View style={styles.todayMiddle}>
         <Text style={styles.todayName}>{name}</Text>
+        {studentName ? (
+          <Text style={styles.todayStudent}>{studentName}</Text>
+        ) : null}
         <Text style={styles.todayTime}>{time}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={22} color={PRIMARY} />
-    </Pressable>
+    </View>
   );
 }
 
@@ -148,34 +139,33 @@ export default function DashboardScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const {
-    data: dashboard = { totalChildren: 0, totalClasses: 0 },
-    isLoading: isDashboardLoading,
-    refetch: refetchDashboard,
+    data: dashboard = {
+      totalChildren: 0,
+      totalClasses: 0,
+      allClasses: [],
+      todayClasses: [],
+    },
+    isLoading,
+    isError,
+    refetch,
   } = useGetParentDashboardQuery(undefined, {
     refetchOnMountOrArgChange: true,
   });
 
-  const {
-    data: classrooms = [],
-    isLoading: isClassroomsLoading,
-    isError,
-    refetch: refetchClassrooms,
-  } = useGetClassroomsQuery(undefined, {
-    refetchOnMountOrArgChange: true,
-  });
-
-  const isLoading = isDashboardLoading || isClassroomsLoading;
-
   useFocusEffect(
     useCallback(() => {
-      refetchDashboard();
-      refetchClassrooms();
-    }, [refetchDashboard, refetchClassrooms]),
+      refetch();
+    }, [refetch]),
   );
 
   const classRows = useMemo(
-    () => classrooms.map((classroom, index) => mapClassroomToRow(classroom, index)),
-    [classrooms],
+    () => dashboard.allClasses.map((item, index) => mapDashboardClassToRow(item, index)),
+    [dashboard.allClasses],
+  );
+
+  const todayCards = useMemo(
+    () => dashboard.todayClasses.map(mapTodayClassToCard),
+    [dashboard.todayClasses],
   );
 
   const openClassDetails = useCallback(
@@ -186,19 +176,13 @@ export default function DashboardScreen() {
       }
       navigation.navigate('ClassDetails', {
         studentId: row.studentId,
-        classroomId: row.id,
+        classroomId: row.classId,
         studentName: row.studentName,
-        capacityLabel: row.capacity,
         photoGallery: row.photoGallery,
       });
     },
     [navigation],
   );
-
-  const refetch = useCallback(() => {
-    refetchDashboard();
-    refetchClassrooms();
-  }, [refetchDashboard, refetchClassrooms]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -262,7 +246,7 @@ export default function DashboardScreen() {
               />
             </View>
 
-            <SectionHeader title="Current Classes" onViewAll={() => {}} />
+            <SectionHeader title="Current Classes" />
 
             {isError ? (
               <View style={styles.classesEmpty}>
@@ -285,8 +269,26 @@ export default function DashboardScreen() {
                   backgroundColor={row.backgroundColor}
                   title={row.title}
                   subtitle={row.subtitle}
-                  capacity={row.capacity}
                   onPress={() => openClassDetails(row)}
+                />
+              ))
+            )}
+
+            <View style={styles.sectionSpacer} />
+
+            <SectionHeader title="Today's Classes" />
+
+            {todayCards.length === 0 ? (
+              <View style={styles.classesEmpty}>
+                <Text style={styles.classesEmptyText}>No classes scheduled for today.</Text>
+              </View>
+            ) : (
+              todayCards.map((card) => (
+                <TodayClassCard
+                  key={card.id}
+                  name={card.name}
+                  studentName={card.studentName}
+                  time={card.time}
                 />
               ))
             )}
@@ -423,17 +425,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: TEXT_DARK,
   },
-  viewAllBtn: {
-    backgroundColor: PRIMARY,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-  },
-  viewAllText: {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '700',
-  },
   classRowColored: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -460,28 +451,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: 'rgba(255,255,255,0.9)',
-  },
-  capacityPill: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.08,
-        shadowRadius: 3,
-      },
-      android: { elevation: 2 },
-    }),
-  },
-  capacityText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: TEXT_DARK,
   },
   classesEmpty: {
     paddingVertical: 28,
@@ -527,6 +496,12 @@ const styles = StyleSheet.create({
   todayName: {
     fontSize: 15,
     fontWeight: '700',
+    color: TEXT_DARK,
+  },
+  todayStudent: {
+    marginTop: 4,
+    fontSize: 13,
+    fontWeight: '600',
     color: TEXT_DARK,
   },
   todayTime: {

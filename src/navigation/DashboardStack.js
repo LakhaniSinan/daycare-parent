@@ -5,6 +5,7 @@ import DashboardScreen from '../screens/DashboardScreen';
 import ChildReportsScreen from '../screens/ChildReportsScreen';
 import DonationBoardScreen from '../screens/DonationBoardScreen';
 import CarpoolsScreen from '../screens/CarpoolsScreen';
+import CarpoolRequestsScreen from '../screens/CarpoolRequestsScreen';
 import AddCarpoolScreen from '../screens/AddCarpoolScreen';
 import ClassDetailsScreen from '../screens/ClassDetailsScreen';
 import ClassroomGalleryScreen from '../screens/ClassroomGalleryScreen';
@@ -18,6 +19,7 @@ export default function DashboardStack() {
       <Stack.Screen name="ChildReports" component={ChildReportsScreen} />
       <Stack.Screen name="DonationBoard" component={DonationBoardScreen} />
       <Stack.Screen name="Carpools" component={CarpoolsScreen} />
+      <Stack.Screen name="CarpoolRequests" component={CarpoolRequestsScreen} />
       <Stack.Screen name="AddCarpool" component={AddCarpoolScreen} />
       <Stack.Screen name="ClassDetails" component={ClassDetailsScreen} />
       <Stack.Screen name="ClassroomGallery" component={ClassroomGalleryScreen} />

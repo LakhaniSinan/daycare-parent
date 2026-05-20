@@ -14,6 +14,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import ParentDrawer from '../components/ParentDrawer';
+import MonthDatePickerModal from '../components/MonthDatePickerModal';
 import { images } from '../assets';
 import { useGetClassDetailsQuery } from '../api/eps';
 import {
@@ -191,6 +192,7 @@ export default function ClassDetailsScreen() {
   const route = useRoute();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [reportExpanded, setReportExpanded] = useState(true);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [viewDate, setViewDate] = useState(() => {
     if (route.params?.date) return parseApiDate(route.params.date);
     return new Date();
@@ -199,7 +201,6 @@ export default function ClassDetailsScreen() {
   const studentId = route.params?.studentId;
   const classroomId = route.params?.classroomId;
   const studentName = route.params?.studentName?.trim() || 'Child';
-  const capacityLabel = route.params?.capacityLabel;
   const initialPhotoGallery = route.params?.photoGallery;
 
   const apiDate = useMemo(() => toApiDate(viewDate), [viewDate]);
@@ -245,10 +246,6 @@ export default function ClassDetailsScreen() {
   const className = classroom?.className?.trim() || 'Class';
   const teacherName = formatTeacherName(classroom?.teacher);
   const scheduleText = formatScheduleLines(classroom?.schedule);
-  const maxCapacity = classroom?.capacity ?? 0;
-  const capacityDisplay =
-    capacityLabel ||
-    (maxCapacity ? `—/${maxCapacity}` : '—');
 
   const classDescription = useMemo(() => {
     const start = classroom?.classStartDate
@@ -258,7 +255,7 @@ export default function ClassDetailsScreen() {
       ? new Date(classroom.classEndDate).toLocaleDateString()
       : null;
     if (start && end) {
-      return `Class runs from ${start} through ${end}. Focused learning and care in ${classTypeName}.`;
+      return ``;
     }
     return `Focused learning and care in ${classTypeName}.`;
   }, [classroom, classTypeName]);
@@ -330,11 +327,26 @@ export default function ClassDetailsScreen() {
         <Pressable onPress={() => shiftDay(-1)} hitSlop={10} accessibilityLabel="Previous day">
           <MaterialCommunityIcons name="chevron-left" size={26} color={TEXT_DARK} />
         </Pressable>
-        <Text style={styles.dateText}>{formatHeadingDate(viewDate)}</Text>
+        <Pressable
+          onPress={() => setCalendarOpen(true)}
+          style={({ pressed }) => [styles.dateCenter, pressed && { opacity: 0.88 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Open calendar to select date"
+        >
+          <MaterialCommunityIcons name="calendar-month" size={20} color={PRIMARY} />
+          <Text style={styles.dateText}>{formatHeadingDate(viewDate)}</Text>
+        </Pressable>
         <Pressable onPress={() => shiftDay(1)} hitSlop={10} accessibilityLabel="Next day">
           <MaterialCommunityIcons name="chevron-right" size={26} color={TEXT_DARK} />
         </Pressable>
       </View>
+
+      <MonthDatePickerModal
+        visible={calendarOpen}
+        value={viewDate}
+        onClose={() => setCalendarOpen(false)}
+        onSelect={setViewDate}
+      />
 
       {isLoading ? (
         <View style={styles.centerBlock}>
@@ -363,13 +375,12 @@ export default function ClassDetailsScreen() {
                 <Text style={styles.classHeaderTitle}>{classTypeName}</Text>
                 <Text style={styles.classHeaderSubtitle}>{className}</Text>
               </View>
-              <View style={styles.capacityPill}>
-                <Text style={styles.capacityText}>{capacityDisplay}</Text>
-              </View>
             </View>
 
             <View style={styles.classBody}>
-              <Text style={styles.classDescription}>{classDescription}</Text>
+              {classDescription ? (
+                <Text style={styles.classDescription}>{classDescription}</Text>
+              ) : null}
               <View style={styles.infoRow}>
                 <MaterialCommunityIcons name="account" size={18} color={HEADER_CARD_COLOR} />
                 <Text style={styles.infoText}>
@@ -520,6 +531,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     marginBottom: 16,
   },
+  dateCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 8,
+  },
   dateText: {
     fontSize: 15,
     fontWeight: '600',
@@ -560,23 +579,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: 'rgba(255,255,255,0.92)',
   },
-  capacityPill: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  capacityText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: TEXT_DARK,
-  },
   classBody: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 12,
+    paddingTop: 12,
+    paddingBottom: 16,
+    gap: 10,
   },
   classDescription: {
     fontSize: 13,
@@ -585,7 +592,7 @@ const styles = StyleSheet.create({
   },
   infoRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
   },
   infoText: {

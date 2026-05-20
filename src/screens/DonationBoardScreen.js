@@ -174,12 +174,19 @@ function formatCurrency(amount) {
   return `$${n.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
+function countUniqueDonors(history) {
+  if (!Array.isArray(history) || history.length === 0) return 0;
+  const parentIds = history
+    .map((entry) => entry?.parentId)
+    .filter((id) => id != null && String(id).length > 0);
+  return new Set(parentIds.map(String)).size;
+}
+
 function mapDonationToCard(donation) {
   const goal = Number(donation.goal) || 0;
   const raisedAmount = Number(donation.raisedAmount) || 0;
   const remaining = Math.max(0, goal - raisedAmount);
   const pct = goal > 0 ? Math.min(100, (raisedAmount / goal) * 100) : 0;
-  const history = Array.isArray(donation.history) ? donation.history : [];
 
   return {
     id: donation._id,
@@ -190,7 +197,8 @@ function mapDonationToCard(donation) {
     remaining,
     progressPct: pct,
     status: donation.status || 'open',
-    donorCount: history.length,
+    donorCount:
+      Number(donation.donorsCount) || countUniqueDonors(donation.history),
   };
 }
 
@@ -322,13 +330,19 @@ export default function DonationBoardScreen() {
   const [payingDonationId, setPayingDonationId] = useState(null);
 
   const {
-    data: donations = [],
+    data: donationsData = {
+      donations: [],
+      kpis: { openDonations: 0, donorsCount: 0, totalCollection: 0 },
+    },
     isFetching,
     isError,
     refetch,
   } = useGetOpenDonationsQuery(undefined, {
     refetchOnMountOrArgChange: true,
   });
+
+  const donations = donationsData.donations;
+  const kpis = donationsData.kpis;
 
   const [createPaymentIntent] = useCreateDonationPaymentIntentMutation();
   const [recordDonation] = useRecordDonationMutation();
@@ -351,12 +365,14 @@ export default function DonationBoardScreen() {
 
   const donationCards = useMemo(() => donations.map(mapDonationToCard), [donations]);
 
-  const stats = useMemo(() => {
-    const openCount = donationCards.filter((d) => d.status === 'open').length;
-    const totalDonors = donationCards.reduce((sum, d) => sum + d.donorCount, 0);
-    const totalRaised = donationCards.reduce((sum, d) => sum + d.raisedAmount, 0);
-    return { openCount, totalDonors, totalRaised };
-  }, [donationCards]);
+  const stats = useMemo(
+    () => ({
+      openCount: kpis.openDonations,
+      totalDonors: kpis.donorsCount,
+      totalRaised: kpis.totalCollection,
+    }),
+    [kpis],
+  );
 
   const openDonateModal = (item) => {
     const defaultAmount = item.remaining > 0 ? String(Math.min(item.remaining, 25) || 10) : '10';
