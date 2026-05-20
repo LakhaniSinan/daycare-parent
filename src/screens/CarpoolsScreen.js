@@ -139,13 +139,22 @@ function matchesSearch(item, query) {
   return haystack.includes(q);
 }
 
-function matchesRequestCarpoolCard(card, query) {
-  if (matchesSearch(card, query)) return true;
+function matchesOwnRequestCard(item, query) {
   if (!query.trim()) return true;
   const q = query.trim().toLowerCase();
-  return card.requests.some((r) =>
-    [String(r.seatsRequested), r.status].join(' ').toLowerCase().includes(q),
-  );
+  const haystack = [
+    item.carNumber,
+    item.driverName,
+    item.startAddress,
+    item.dropoffAddress,
+    item.time,
+    item.schedule,
+    String(item.seatsRequested),
+    item.status,
+  ]
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(q);
 }
 
 function statusBadgeStyle(status) {
@@ -280,39 +289,30 @@ function CarpoolCard({ item, showRequest, showViewRequests, onViewRequests, onRe
   );
 }
 
-function MyCarpoolRequestsCard({ carpool }) {
+function OwnCarpoolRequestCard({ item }) {
   return (
     <View style={[styles.card, CARD_SHADOW]}>
       <View style={styles.cardTop}>
         <View style={styles.carIconWrap}>
           <MaterialCommunityIcons name="car" size={22} color={PRIMARY} />
         </View>
-        <View style={styles.requestsCountBadge}>
-          <Text style={styles.requestsCountText}>
-            {carpool.requests.length} request{carpool.requests.length === 1 ? '' : 's'}
+        <View style={[styles.statusBadge, statusBadgeStyle(item.status)]}>
+          <Text style={styles.statusBadgeText}>
+            {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
           </Text>
         </View>
       </View>
-      <Text style={styles.cardTitle}>{carpool.title}</Text>
-      <Text style={styles.cardSchedule}>{carpool.schedule}</Text>
 
-      {carpool.requests.map((req) => (
-        <View key={req.requestId} style={styles.incomingRequestBlock}>
-          <View style={styles.ownRequestRow}>
-            <View style={styles.ownRequestLeft}>
-              <View style={styles.infoRow}>
-                <Ionicons name="people-outline" size={18} color={PRIMARY} />
-                <Text style={styles.infoText}>Seats requested: {req.seatsRequested}</Text>
-              </View>
-            </View>
-            <View style={[styles.statusBadge, statusBadgeStyle(req.status)]}>
-              <Text style={styles.statusBadgeText}>
-                {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
-              </Text>
-            </View>
-          </View>
-        </View>
-      ))}
+      <Text style={styles.cardTitle}>{item.carNumber}</Text>
+      <Text style={styles.cardSchedule}>Driver: {item.driverName}</Text>
+
+      <View style={styles.infoRow}>
+        <Ionicons name="people-outline" size={18} color={PRIMARY} />
+        <Text style={styles.infoText}>Seats requested: {item.seatsRequested}</Text>
+      </View>
+
+      <Text style={styles.routeHeading}>Route</Text>
+      <RouteTimeline stops={item.stops} />
     </View>
   );
 }
@@ -443,37 +443,36 @@ export default function CarpoolsScreen() {
     return list.filter((c) => matchesSearch(c, search));
   }, [cards, isCarpoolListTab, isMyTab, search, parentId]);
 
-  const requestCarpoolCards = useMemo(() => {
+  const ownRequestCards = useMemo(() => {
     if (!isRequestsTab || !parentId) return [];
 
     const carpoolById = new Map(cards.map((c) => [String(c.id), c]));
-    const grouped = new Map();
 
-    ownRequests.forEach((raw) => {
-      const req = mapOwnCarpoolRequest(raw);
-      if (!req.requestId || !req.carpoolId) return;
+    return ownRequests
+      .map((raw) => {
+        const item = mapOwnCarpoolRequest(raw);
+        if (!item.requestId) return null;
 
-      const carpoolKey = String(req.carpoolId);
-      if (!grouped.has(carpoolKey)) {
-        const existing = carpoolById.get(carpoolKey);
-        grouped.set(carpoolKey, {
-          ...(existing ?? {
-            id: carpoolKey,
-            title: 'Carpool',
-            schedule: '',
-            driver: '—',
-            time: '—',
-            stops: [],
-          }),
-          requests: [],
-        });
-      }
-      grouped.get(carpoolKey).requests.push(req);
-    });
+        if (item.carNumber === '—' && item.carpoolId) {
+          const fallback = carpoolById.get(item.carpoolId);
+          if (fallback) {
+            return {
+              ...item,
+              carNumber: fallback.title,
+              driverName: fallback.driver,
+              time: fallback.time,
+              schedule: fallback.schedule,
+              stops: fallback.stops,
+              startAddress: fallback.stops[0]?.label ?? item.startAddress,
+              dropoffAddress: fallback.stops[1]?.label ?? item.dropoffAddress,
+            };
+          }
+        }
 
-    return Array.from(grouped.values())
-      .filter((c) => c.requests.length > 0)
-      .filter((c) => matchesRequestCarpoolCard(c, search));
+        return item;
+      })
+      .filter(Boolean)
+      .filter((item) => matchesOwnRequestCard(item, search));
   }, [ownRequests, cards, isRequestsTab, parentId, search]);
 
   const openCarpoolRequests = (item) => {
@@ -598,7 +597,7 @@ export default function CarpoolsScreen() {
           <Ionicons name="search" size={20} color={TEXT_DARK} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search Documents"
+            placeholder="Search"
             placeholderTextColor={TEXT_MUTED}
             value={search}
             onChangeText={setSearch}
@@ -613,7 +612,7 @@ export default function CarpoolsScreen() {
             <View style={styles.placeholderBlock}>
               <Text style={styles.placeholderText}>Sign in to view carpool requests.</Text>
             </View>
-          ) : isFetching && requestCarpoolCards.length === 0 ? (
+          ) : isFetching && ownRequestCards.length === 0 ? (
             <View style={styles.placeholderBlock}>
               <ActivityIndicator size="large" color={PRIMARY} />
             </View>
@@ -624,7 +623,7 @@ export default function CarpoolsScreen() {
                 <Text style={styles.retryBtnText}>Try again</Text>
               </TouchableOpacity>
             </View>
-          ) : requestCarpoolCards.length === 0 ? (
+          ) : ownRequestCards.length === 0 ? (
             <View style={styles.placeholderBlock}>
               <Text style={styles.placeholderText}>
                 {search.trim() ? 'No requests match your search.' : 'No carpool requests yet.'}
@@ -632,8 +631,8 @@ export default function CarpoolsScreen() {
             </View>
           ) : (
             <View style={styles.listBlock}>
-              {requestCarpoolCards.map((c) => (
-                <MyCarpoolRequestsCard key={c.id} carpool={c} />
+              {ownRequestCards.map((item) => (
+                <OwnCarpoolRequestCard key={item.requestId} item={item} />
               ))}
             </View>
           )

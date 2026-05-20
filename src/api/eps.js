@@ -1,8 +1,8 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 
-// export const BASE_URL = 'https://daycare-backend-bdecee4507c1.herokuapp.com/api';
+export const BASE_URL = 'https://daycare-backend-bdecee4507c1.herokuapp.com/api';
 // export const BASE_URL = 'http://192.168.100.37:3000/api';
-export const BASE_URL = 'https://0g01d8wd-3000.inc1.devtunnels.ms/api';
+// export const BASE_URL = 'https://0g01d8wd-3000.inc1.devtunnels.ms/api';
 
 export const API = {
   AUTH_LOGIN: '/auth/login',
@@ -367,12 +367,16 @@ export const baseApi = createApi({
       providesTags: (_result, _error, userId) => [{ type: 'Users', id: userId }],
     }),
     updateProfile: build.mutation({
-      query: ({ firstName, lastName }) => ({
+      query: ({ firstName, lastName, phoneNumber, profileImage }) => ({
         url: API.PROFILE_UPDATE,
         method: 'PUT',
         body: {
           firstName: String(firstName ?? '').trim(),
           lastName: String(lastName ?? '').trim(),
+          phoneNumber: String(phoneNumber ?? '').trim(),
+          ...(profileImage
+            ? { profileImage: String(profileImage).trim() }
+            : {}),
         },
       }),
       invalidatesTags: ['Users'],

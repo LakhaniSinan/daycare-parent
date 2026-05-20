@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -22,7 +22,7 @@ import UserAvatar from '../components/UserAvatar';
 import { images } from '../assets';
 import { useUpdateProfileMutation } from '../api/eps';
 import { useUserProfile } from '../hooks/useUserProfile';
-import { getRoleLabel } from '../utils/userProfile';
+import { showProfilePhotoPickerAlert } from '../utils/profilePhotoPicker';
 
 const PRIMARY = '#1E88E5';
 const TEXT_DARK = '#111827';
@@ -53,11 +53,12 @@ function getApiErrorMessage(err, fallback) {
 }
 
 function ReadOnlyField({ label, value }) {
+  const display = value?.trim() ? value.trim() : '—';
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <View style={styles.readOnlyBox}>
-        <Text style={styles.readOnlyText}>{value}</Text>
+        <Text style={styles.readOnlyText}>{display}</Text>
       </View>
     </View>
   );
@@ -68,17 +69,30 @@ export default function EditProfileScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [touched, setTouched] = useState({ firstName: false, lastName: false });
+  const [phone, setPhone] = useState('');
+  const [touched, setTouched] = useState({
+    firstName: false,
+    lastName: false,
+    phone: false,
+  });
+  const [photoUri, setPhotoUri] = useState(null);
+  const [profileImageUrl, setProfileImageUrl] = useState(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   const {
     userDetails,
     profileImageUri,
-    role,
+    email,
     isLoading,
     refetch,
   } = useUserProfile();
 
   const [updateProfile, { isLoading: isSaving }] = useUpdateProfileMutation();
+
+  const displayImageUri = useMemo(
+    () => photoUri || profileImageUrl || profileImageUri,
+    [photoUri, profileImageUrl, profileImageUri],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -90,14 +104,15 @@ export default function EditProfileScreen() {
     if (!userDetails) return;
     setFirstName(userDetails.firstName?.trim() ?? '');
     setLastName(userDetails.lastName?.trim() ?? '');
+    setPhone(userDetails.phoneNumber?.trim() ?? '');
   }, [userDetails]);
-
-  const roleDisplay = getRoleLabel(role) || role || 'Parent';
 
   const firstNameError =
     touched.firstName && !firstName.trim() ? 'First name is required' : undefined;
   const lastNameError =
     touched.lastName && !lastName.trim() ? 'Last name is required' : undefined;
+  const phoneError =
+    touched.phone && !phone.trim() ? 'Phone number is required' : undefined;
 
   const goBack = () => {
     if (navigation.canGoBack()) {
@@ -105,21 +120,44 @@ export default function EditProfileScreen() {
     }
   };
 
+  const openPhotoOptions = () => {
+    showProfilePhotoPickerAlert({
+      onLocalUri: setPhotoUri,
+      onUploadedUrl: setProfileImageUrl,
+      onUploadStart: () => setIsUploadingPhoto(true),
+      onUploadEnd: () => setIsUploadingPhoto(false),
+    });
+  };
+
   const handleSave = async () => {
-    setTouched({ firstName: true, lastName: true });
+    setTouched({ firstName: true, lastName: true, phone: true });
 
     const trimmedFirst = firstName.trim();
     const trimmedLast = lastName.trim();
+    const trimmedPhone = phone.trim();
 
-    if (!trimmedFirst || !trimmedLast) {
-      Alert.alert('Missing information', 'Please enter your first and last name.');
+    if (!trimmedFirst || !trimmedLast || !trimmedPhone) {
+      Alert.alert('Missing information', 'Please complete all required fields.');
       return;
     }
+
+    if (isUploadingPhoto) {
+      Alert.alert('Please wait', 'Your profile photo is still uploading.');
+      return;
+    }
+
+    const imageToSave =
+      profileImageUrl?.trim() ||
+      userDetails?.profileImage?.trim() ||
+      profileImageUri ||
+      undefined;
 
     try {
       await updateProfile({
         firstName: trimmedFirst,
         lastName: trimmedLast,
+        phoneNumber: trimmedPhone,
+        profileImage: imageToSave,
       }).unwrap();
 
       await refetch();
@@ -130,6 +168,8 @@ export default function EditProfileScreen() {
       Alert.alert('Error', getApiErrorMessage(err, 'Could not update profile.'));
     }
   };
+
+  const isBusy = isSaving || isUploadingPhoto;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
@@ -174,7 +214,8 @@ export default function EditProfileScreen() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
       >
         {isLoading ? (
           <View style={styles.loadingWrap}>
@@ -186,16 +227,40 @@ export default function EditProfileScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
           >
             <View style={styles.avatarSection}>
-              <UserAvatar
-                imageUri={profileImageUri}
-                size={120}
-                borderWidth={4}
-                borderColor={PRIMARY}
-                iconColor={TEXT_MUTED}
-                placeholderStyle={styles.avatarPlaceholder}
-              />
+              <View style={styles.avatarWrap}>
+                {displayImageUri ? (
+                  <Image source={{ uri: displayImageUri }} style={styles.avatarImage} />
+                ) : (
+                  <UserAvatar
+                    imageUri={null}
+                    size={120}
+                    borderWidth={4}
+                    borderColor={PRIMARY}
+                    iconColor={TEXT_MUTED}
+                    placeholderStyle={styles.avatarPlaceholder}
+                  />
+                )}
+                {isUploadingPhoto ? (
+                  <View style={styles.avatarOverlay}>
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  </View>
+                ) : null}
+                <Pressable
+                  onPress={openPhotoOptions}
+                  style={({ pressed }) => [
+                    styles.cameraBadge,
+                    pressed && styles.pressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Change profile photo"
+                >
+                  <Ionicons name="camera" size={18} color="#FFFFFF" />
+                </Pressable>
+              </View>
+              <Text style={styles.photoHint}>Tap camera to update photo</Text>
             </View>
 
             <View style={styles.form}>
@@ -225,13 +290,27 @@ export default function EditProfileScreen() {
                 />
               </View>
 
-              <ReadOnlyField label="Role" value={roleDisplay} />
+              <View style={styles.fieldBlock}>
+                <Text style={styles.fieldLabel}>Phone number</Text>
+                <AppTextInput
+                  value={phone}
+                  onChangeText={setPhone}
+                  onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
+                  placeholder="Phone number"
+                  keyboardType="phone-pad"
+                  error={phoneError}
+                  touched={touched.phone}
+                />
+              </View>
+
+              <ReadOnlyField label="Email" value={email} />
             </View>
 
             <AppButton
               title="Save changes"
               onPress={handleSave}
-              loading={isSaving}
+              loading={isBusy}
+              disabled={isBusy}
               style={styles.saveBtn}
             />
           </ScrollView>
@@ -240,6 +319,8 @@ export default function EditProfileScreen() {
     </SafeAreaView>
   );
 }
+
+const AVATAR_SIZE = 120;
 
 const styles = StyleSheet.create({
   safe: {
@@ -300,14 +381,53 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingBottom: 32,
+    flexGrow: 1,
   },
   avatarSection: {
     alignItems: 'center',
     paddingTop: 24,
-    paddingBottom: 28,
+    paddingBottom: 20,
+  },
+  avatarWrap: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    position: 'relative',
+    overflow: 'visible',
+  },
+  avatarImage: {
+    width: AVATAR_SIZE,
+    height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+    borderWidth: 4,
+    borderColor: PRIMARY,
   },
   avatarPlaceholder: {
     backgroundColor: '#E5E7EB',
+  },
+  avatarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: AVATAR_SIZE / 2,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: TEXT_DARK,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  photoHint: {
+    marginTop: 10,
+    fontSize: 12,
+    color: TEXT_MUTED,
   },
   form: {
     gap: 4,
@@ -334,7 +454,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: TEXT_MUTED,
     fontWeight: '500',
-    textTransform: 'capitalize',
   },
   saveBtn: {
     marginTop: 12,

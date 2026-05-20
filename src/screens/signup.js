@@ -4,7 +4,6 @@ import {
   Alert,
   Image,
   KeyboardAvoidingView,
-  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -17,7 +16,6 @@ import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useDispatch } from 'react-redux';
-import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
 
 import { useRegisterParentMutation } from '../api/eps';
 import AppButton from '../components/AppButton';
@@ -25,72 +23,13 @@ import { setAuthData } from '../store/authSlice';
 import { saveParentSession } from '../utils/authStorage';
 import { authApiErrorMessage, normalizeAuthPayload } from '../utils/authSession';
 import AppTextInput from '../components/appTextInput';
-import { uploadImageToCloudinary } from '../services/cloudinaryUpload';
+import { showProfilePhotoPickerAlert } from '../utils/profilePhotoPicker';
 import { signupValidationSchema } from '../validation/authSchemas';
 
 const PRIMARY_BLUE = '#1E88E5';
 const GREY_MUTED = '#6B7280';
 const GREY_PLACEHOLDER = '#9CA3AF';
 const TEXT_PRIMARY = '#111827';
-
-const PHOTO_OPTIONS = {
-  mediaType: 'photo',
-  quality: 0.85,
-  maxWidth: 1200,
-  maxHeight: 1200,
-};
-
-async function ensureAndroidCameraPermission() {
-  if (Platform.OS !== 'android') {
-    return true;
-  }
-  try {
-    const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, {
-      title: 'Camera permission',
-      message: 'Allow camera access to take a profile photo.',
-      buttonPositive: 'OK',
-    });
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
-  } catch {
-    return false;
-  }
-}
-
-async function handlePickerResult(result, setPhotoUri, setProfileImageUrl, setIsUploadingPhoto) {
-  if (result.didCancel) {
-    return;
-  }
-  if (result.errorCode) {
-    Alert.alert('Photo error', result.errorMessage || 'Could not use that image.');
-    return;
-  }
-  const asset = result.assets?.[0];
-  if (!asset?.uri) {
-    return;
-  }
-  setPhotoUri(asset.uri);
-  setProfileImageUrl(null);
-  setIsUploadingPhoto(true);
-  try {
-    const json = await uploadImageToCloudinary(asset);
-    const secureUrl = json?.secure_url;
-    if (secureUrl) {
-      setProfileImageUrl(secureUrl);
-    } else {
-      Alert.alert(
-        'Upload incomplete',
-        'Could not get image URL from Cloudinary. Try another photo.',
-      );
-    }
-  } catch {
-    Alert.alert(
-      'Upload failed',
-      'Photo could not be uploaded. Check your connection and try again.',
-    );
-  } finally {
-    setIsUploadingPhoto(false);
-  }
-}
 
 export default function Signup() {
   const navigation = useNavigation();
@@ -110,38 +49,12 @@ export default function Signup() {
   };
 
   const openPhotoOptions = () => {
-    Alert.alert('Profile photo', 'Add or change your profile photo', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Take photo',
-        onPress: async () => {
-          const allowed = await ensureAndroidCameraPermission();
-          if (!allowed) {
-            Alert.alert('Permission needed', 'Camera access is required to take a photo.');
-            return;
-          }
-          const result = await launchCamera(PHOTO_OPTIONS);
-          await handlePickerResult(
-            result,
-            setPhotoUri,
-            setProfileImageUrl,
-            setIsUploadingPhoto,
-          );
-        },
-      },
-      {
-        text: 'Choose from library',
-        onPress: async () => {
-          const result = await launchImageLibrary({ ...PHOTO_OPTIONS, selectionLimit: 1 });
-          await handlePickerResult(
-            result,
-            setPhotoUri,
-            setProfileImageUrl,
-            setIsUploadingPhoto,
-          );
-        },
-      },
-    ]);
+    showProfilePhotoPickerAlert({
+      onLocalUri: setPhotoUri,
+      onUploadedUrl: setProfileImageUrl,
+      onUploadStart: () => setIsUploadingPhoto(true),
+      onUploadEnd: () => setIsUploadingPhoto(false),
+    });
   };
 
   const isBusy = isRegistering || isUploadingPhoto;
@@ -150,8 +63,8 @@ export default function Signup() {
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 24}
       >
         <Formik
           initialValues={{
@@ -231,6 +144,7 @@ export default function Signup() {
               contentContainerStyle={styles.scrollContent}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
+              automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
             >
               <Pressable
                 onPress={goBack}
@@ -411,6 +325,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 36,
     alignItems: 'center',
+    flexGrow: 1,
   },
   backRow: {
     alignSelf: 'flex-start',
